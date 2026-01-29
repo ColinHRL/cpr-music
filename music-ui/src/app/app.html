@@ -1,0 +1,25 @@
+<nav class="app-navbar">
+  <a routerLink="/" class="app-title">CPR</a>
+  <span class="app-title-separator"> | </span>
+  <span class="app-subtitle">Colorado Public Radio</span>
+</nav>
+<main class="app-container">
+  <div>
+    {{ currentlyPlaying()?.title }} by {{ currentlyPlaying()?.artist }}
+  </div>
+  <audio controls>
+    <source src="https://stream1.cprnetwork.org/cpr3_lo" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+  <hr />
+  <h2>Recently Played</h2>
+  @if (tracklist() && tracklist().length > 0) {
+    <ul>
+      @for (track of tracklist(); track track.schedule_id) {
+        <li>{{ track.title }} by {{ track.artist }}</li>
+      }
+    </ul>
+  }
+</main>
+
+<router-outlet />
