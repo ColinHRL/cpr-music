@@ -1,0 +1,101 @@
+.app-navbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    .cpr-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        .app-title {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #f06f37;
+        }
+    }
+
+    .donate-button {
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        background-color: #b7410e;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        transition: background-color 0.3s;
+        text-decoration: none;
+
+        &:hover {
+            box-shadow: #333 4px 4px 0;
+        }
+    }
+
+}
+
+.layout-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.player-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 2rem;
+
+    .song {
+        font-size: 3rem;
+        font-weight: 600;
+        color: #f0f0f0;
+    }
+
+    .artist {
+        font-size: 1rem;
+        color: #cccccc;
+    }
+}
+
+.status-info {
+    font-size: 0.85rem;
+    color: #cccccc;
+    display: flex;
+    gap: 1rem;
+}
+
+.stream-lag {
+    font-size: 0.85rem;
+    color: #cccccc;
+}
+
+.controls {
+    margin: 1rem 0;
+}
+
+.controls button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+.controls button:hover {
+    background-color: #0056b3;
+}
+
+.controls button:active {
+    background-color: #004085;
+}
+
+/* Responsive: stack on narrow, split on wide screens */
+@media (min-width: 768px) {
+    .layout-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}

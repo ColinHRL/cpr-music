@@ -1,0 +1,16 @@
+<div class="track-list">
+  <h2>Track List</h2>
+  @if (tracklist() && tracklist().length > 0) {
+  <ul>
+    <li *ngFor="let track of tracklist(); trackBy: trackByScheduleId">
+      <button class="play-btn" (click)="playTrack(track.schedule_id)" title="Play">
+        ▶
+      </button>
+      <span class="track-info">{{ track.title }} by {{ track.artist }}</span>
+    </li>
+  </ul>
+  }
+  @else {
+  <p class="no-tracks">No tracks played yet</p>
+  }
+</div>

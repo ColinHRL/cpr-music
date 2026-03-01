@@ -37,6 +37,8 @@
     "@angular/cli": "^21.1.1",
     "@angular/compiler-cli": "^21.1.0",
     "jsdom": "^27.1.0",
+    "oxfmt": "^0.31.0",
+    "oxlint": "^1.46.0",
     "typescript": "~5.9.2",
     "vitest": "^4.0.8"
   }

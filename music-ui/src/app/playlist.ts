@@ -28,4 +28,5 @@ export interface Playlist {
     soloist6: string;
     time: string; // HH:MM:SS
     title: string;
+    audioStartPosition?: number; // Position in audio stream (seconds) where this track started
 }

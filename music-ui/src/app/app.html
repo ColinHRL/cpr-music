@@ -1,25 +1,34 @@
 <nav class="app-navbar">
-  <a routerLink="/" class="app-title">CPR</a>
-  <span class="app-title-separator"> | </span>
-  <span class="app-subtitle">Colorado Public Radio</span>
-</nav>
-<main class="app-container">
-  <div>
-    {{ currentlyPlaying()?.title }} by {{ currentlyPlaying()?.artist }}
+  <div class="cpr-header">
+    <span class="app-title">CPR</span>
+    <span class="app-title-separator">|</span>
+    <span class="app-subtitle">Colorado Public Radio</span>
   </div>
-  <audio controls>
-    <source src="https://stream1.cprnetwork.org/cpr3_lo" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
-  <hr />
-  <h2>Recently Played</h2>
-  @if (tracklist() && tracklist().length > 0) {
-    <ul>
-      @for (track of tracklist(); track track.schedule_id) {
-        <li>{{ track.title }} by {{ track.artist }}</li>
+  <div>
+    <a class="donate-button" href="https://donate.cpr.org/give" target="_blank" rel="noopener noreferrer">Donate</a>
+  </div>
+</nav>
+<hr />
+<main class="app-container">
+  <div class="layout-grid">
+    <div class="player-section">
+      @if (currentlyPlaying()?.title && currentlyPlaying()?.artist) {
+      <div class="song">
+        <span class="title">{{ currentlyPlaying()?.title }}</span>
+      </div>
+      <div class="artist">
+        {{ currentlyPlaying()?.artist }}
+      </div>
       }
-    </ul>
-  }
+      @else {
+      <div>{{ currentlyPlaying()?.line_1 }}</div>
+      }
+
+      <app-audio-player></app-audio-player>
+    </div>
+
+    <app-track-list></app-track-list>
+  </div>
 </main>
 
 <router-outlet />

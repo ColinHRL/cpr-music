@@ -1,0 +1,20 @@
+<audio #audioPlayer autoplay preload="auto">
+  <source src="https://stream1.cprnetwork.org/cpr3_lo" type="audio/mpeg">
+  Your browser does not support the audio element.
+</audio>
+
+@if (audioError()) {
+  <div class="audio-error">
+    ⚠️ {{ audioError() }}
+  </div>
+}
+
+<div class="player-controls">
+  <button (click)="togglePlayPause()" class="play-pause-btn">
+    {{ isPlaying() ? '⏸' : '▶' }}
+  </button>
+</div>
+
+@if (timeUntilNextPoll() !== null) {
+  <div class="next-poll">Next track in: {{ (timeUntilNextPoll()! / 1000).toFixed(1) }}s</div>
+}

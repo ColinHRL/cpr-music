@@ -1,1 +1,32 @@
 /* You can add global styles to this file, and also import other style files */
+
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: .5rem 1rem;
+  background-color: #36454f;
+  color: #ffffff;
+}
+
+.player-controls {
+  margin: 1rem 0;
+}
+
+.controls {
+  margin: 1rem 0;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+  background-color: #0e84b7;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  margin-right: 0.5rem;
+}
+
+button:hover {
+  box-shadow: #333 4px 4px 0;
+}
