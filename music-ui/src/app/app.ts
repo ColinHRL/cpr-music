@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Music } from './music';
-import { Playlist } from './playlist';
+import { Track } from './track';
 import { CommonModule } from '@angular/common';
 import { AudioPlayerComponent } from './audio-player.component';
 import { AppTrackListComponent } from './app-track-list.component';
@@ -10,18 +10,14 @@ import { AppTrackListComponent } from './app-track-list.component';
   selector: 'app-root',
   imports: [CommonModule, RouterOutlet, AudioPlayerComponent, AppTrackListComponent],
   templateUrl: './app.html',
-  styleUrl: './app.css'
+  styleUrls: ['./app.css']
 })
 export class App {
-  currentlyPlaying = signal<Playlist | null>(null);
+  currentlyPlaying = signal<Track | null>(null);
 
   constructor(private musicService: Music) {
     this.musicService.currentlyPlaying.subscribe((track) => {
       this.currentlyPlaying.set(track);
     });
-  }
-
-  onSongEnd(): void {
-    this.musicService.logSongEndTiming();
   }
 }

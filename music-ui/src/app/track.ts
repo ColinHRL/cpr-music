@@ -1,4 +1,4 @@
-export interface Playlist {
+export interface Track {
     album: string;
     artist: string;
     cat_num: string;
@@ -29,4 +29,8 @@ export interface Playlist {
     time: string; // HH:MM:SS
     title: string;
     audioStartPosition?: number; // Position in audio stream (seconds) where this track started
+    audioEndPosition?: number; // Position in audio stream (seconds) where this track ended (or null if currently playing)
+    clientStartTime?: number; // Timestamp when track started according to client clock (milliseconds since epoch)
+    clientEndTime?: number; // Timestamp when track ended according to client clock (milliseconds since epoch, or null if currently playing)
+    canPlay?: boolean; // Whether this track has enough info to be played (e.g. title and artist are required)
 }

@@ -35,6 +35,50 @@
   margin-bottom: 0;
 }
 
+.streaming-links {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+}
+
+.stream-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.stream-icon:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.stream-icon svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.stream-icon.spotify svg {
+  fill: #b7410e;
+}
+
+.stream-icon.apple svg {
+  fill: #b7410e;
+}
+
+.stream-icon.youtube svg {
+  fill: #b7410e;
+}
+
+.stream-icon.amazon svg {
+  fill: #b7410e;
+}
+
 .play-btn {
   flex-shrink: 0;
   width: 2.5rem;

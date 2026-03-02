@@ -2,6 +2,7 @@ import { Component, ViewChild, AfterViewInit, OnDestroy, signal } from '@angular
 import { Music } from './music';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
+import { Track } from './track';
 
 @Component({
   selector: 'app-audio-player',
@@ -15,20 +16,25 @@ export class AudioPlayerComponent implements AfterViewInit, OnDestroy {
   isPlaying = signal<boolean>(false);
   audioError = signal<string | null>(null);
   timeUntilNextPoll = signal<number | null>(null);
+  liveTrack = signal<Track | null>(null);
   private countdownTargetMs: number | null = null;
   private countdownTimer: number | null = null;
   private subscriptions = new Subscription();
 
   constructor(private musicService: Music) {
     // Subscribe to state changes from the service
-    this.subscriptions.add(this.musicService.isPlaying.subscribe((playing) => {
-      this.isPlaying.set(playing);
+    this.subscriptions.add(this.musicService.currentlyPlaying.subscribe((track) => {
+      if (track) {
+        this.liveTrack.set(track);
+        this.updateIsPlaying();
+      }
     }));
-
+    this.subscriptions.add(this.musicService.isPlaying.subscribe(() => {
+      this.updateIsPlaying();
+    }));
     this.subscriptions.add(this.musicService.audioError.subscribe((error) => {
       this.audioError.set(error);
     }));
-
     this.subscriptions.add(this.musicService.timeUntilNextPollMs.subscribe((timeMs) => {
       this.handleNextPollUpdate(timeMs);
     }));
@@ -39,6 +45,10 @@ export class AudioPlayerComponent implements AfterViewInit, OnDestroy {
       const audio = this.audioPlayer.nativeElement;
       this.musicService.setAudioElement(audio);
     }
+  }
+
+  updateIsPlaying(): void {
+    this.isPlaying.set(this.musicService.isPlaying.value);
   }
 
   togglePlayPause(): void {
@@ -84,7 +94,6 @@ export class AudioPlayerComponent implements AfterViewInit, OnDestroy {
   private stopCountdown(): void {
     if (this.countdownTimer) {
       clearInterval(this.countdownTimer);
-      this.countdownTimer = null;
     }
   }
 }
