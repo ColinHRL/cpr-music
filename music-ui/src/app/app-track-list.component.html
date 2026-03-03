@@ -3,7 +3,7 @@
   @if (tracklist() && tracklist().length > 0) {
   <ul>
     <li *ngFor="let track of tracklist(); trackBy: trackByScheduleId">
-      <button class="play-btn" *ngIf="track.canPlay" (click)="playTrack(track.schedule_id)" [title]="isTrackPlaying(track.schedule_id) ? 'Pause' : 'Play'">
+      <button class="play-btn" *ngIf="track.canPlay && track.audioStartPosition != null" (click)="playTrack(track.schedule_id)" [title]="isTrackPlaying(track.schedule_id) ? 'Pause' : 'Play'">
         {{ isTrackPlaying(track.schedule_id) ? '⏸' : '▶' }}
       </button>
       <span class="track-info">{{ track.title }} by {{ track.artist }}</span>

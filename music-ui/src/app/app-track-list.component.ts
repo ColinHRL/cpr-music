@@ -51,9 +51,6 @@ export class AppTrackListComponent implements OnInit {
   buildSearchQuery(track: Track): string {
     // Build a search query from track info
     const parts = [track.title, track.artist];
-    if (track.album) {
-      parts.push(track.album);
-    }
     return parts.filter(p => p).join(' ');
   }
 

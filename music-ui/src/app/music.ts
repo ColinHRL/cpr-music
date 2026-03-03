@@ -31,6 +31,10 @@ export class Music {
     'https://stream2.cprnetwork.org/cpr3_lo'
   ];
   private currentStreamIndex = 0;
+  private currentlyPlayingEndTimeoutMs: number | null = null;
+  private currentlyPlayingEndTimerStartTime: number | null = null;
+  private currentlyPlayingRemainingMs: number | null = null;
+  private lagTimer: number | null = null;
 
   constructor() { }
 
@@ -43,11 +47,48 @@ export class Music {
   togglePlayPause(): void {
     if (this.audioElement) {
       if (this.audioElement.paused) {
+        // Playing - restore the timer with captured remaining time
         this.audioElement.play();
         this.isPlaying.next(true);
+
+        if (
+          this.currentlyPlayingRemainingMs !== null &&
+          this.currentlyPlayingRemainingMs > 0
+        ) {
+          if (this.currentlyPlayingEndTimer) {
+            clearTimeout(this.currentlyPlayingEndTimer);
+            this.currentlyPlayingEndTimer = null;
+          }
+          this.currentlyPlayingEndTimer = window.setTimeout(() => {
+            this.playNextTrack();
+          }, this.currentlyPlayingRemainingMs);
+          this.currentlyPlayingEndTimerStartTime = Date.now();
+          this.currentlyPlayingEndTimeoutMs = this.currentlyPlayingRemainingMs;
+          console.log(
+            `Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`
+          );
+        }
       } else {
+        // Pausing - capture remaining time before clearing timer
         this.audioElement.pause();
         this.isPlaying.next(false);
+
+        if (
+          this.currentlyPlayingEndTimer &&
+          this.currentlyPlayingEndTimeoutMs &&
+          this.currentlyPlayingEndTimerStartTime
+        ) {
+          const elapsed = Date.now() - this.currentlyPlayingEndTimerStartTime;
+          this.currentlyPlayingRemainingMs = Math.max(
+            0,
+            this.currentlyPlayingEndTimeoutMs - elapsed
+          );
+          clearTimeout(this.currentlyPlayingEndTimer);
+          this.currentlyPlayingEndTimer = null;
+          console.log(
+            `Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`
+          );
+        }
       }
     }
   }
@@ -144,6 +185,13 @@ export class Music {
       console.log(`Switching to stream: ${newUrl}`);
       audio.src = newUrl;
       audio.load();
+      // retrying stream means we cannot play anything in the playlist except the current track, so set all tracks to canPlay false except the current one
+      const currentTrack = this.currentlyPlaying.value;
+      if (currentTrack) {
+        this.playlist.value.forEach(track => {
+          track.canPlay = track.schedule_id === currentTrack.schedule_id;
+        });
+      }
 
       if (this.isPlaying.value) {
         audio.play().catch((err) => {
@@ -159,6 +207,7 @@ export class Music {
 
     if (this.getPlaylistTimer) {
       clearTimeout(this.getPlaylistTimer);
+      this.getPlaylistTimer = null;
     }
 
     this.getPlaylistTimer = window.setTimeout(() => {
@@ -174,10 +223,15 @@ export class Music {
       this.currentlyPlaying.next(track);
       if (this.currentlyPlayingEndTimer) {
         clearTimeout(this.currentlyPlayingEndTimer);
+        this.currentlyPlayingEndTimer = null;
       }
+      const timeoutMs = this.getTrackEndTimeFromNowMs(track);
       this.currentlyPlayingEndTimer = window.setTimeout(() => {
         this.playNextTrack();
-      }, this.getTrackEndTimeFromNowMs(track));
+      }, timeoutMs);
+      this.currentlyPlayingEndTimerStartTime = Date.now();
+      this.currentlyPlayingEndTimeoutMs = timeoutMs;
+      this.currentlyPlayingRemainingMs = null;
       console.log(`Seeking to ${track.audioStartPosition.toFixed(2)}s in track: ${track.title}`);
     }
   }
@@ -188,16 +242,33 @@ export class Music {
     const currentIndex = playlist.findIndex(t => t.schedule_id === this.currentlyPlaying.value?.schedule_id);
     if (currentIndex > 0) {
       const nextTrack = playlist[currentIndex - 1];
-      if (nextTrack.audioStartPosition !== undefined && this.audioElement) {
-        this.audioElement.currentTime = nextTrack.audioStartPosition;
+      if (nextTrack.audioStartPosition !== undefined && this.audioElement && nextTrack.canPlay && this.audioElement.currentTime >= nextTrack.audioStartPosition) {
         this.currentlyPlaying.next(nextTrack);
         if (this.currentlyPlayingEndTimer) {
           clearTimeout(this.currentlyPlayingEndTimer);
+          this.currentlyPlayingEndTimer = null;
         }
+        const timeoutMs = this.getTrackEndTimeFromNowMs(nextTrack);
         this.currentlyPlayingEndTimer = window.setTimeout(() => {
           this.playNextTrack();
-        }, this.getTrackEndTimeFromNowMs(nextTrack));
+        }, timeoutMs);
+        this.currentlyPlayingEndTimerStartTime = Date.now();
+        this.currentlyPlayingEndTimeoutMs = timeoutMs;
+        this.currentlyPlayingRemainingMs = null;
         console.log(`Automatically advancing to next track: ${nextTrack.title}`);
+      } else {
+        if (this.currentlyPlayingEndTimer) {
+          clearTimeout(this.currentlyPlayingEndTimer);
+          this.currentlyPlayingEndTimer = null;
+        }
+        const timeUntilNextTrackStartSec = nextTrack.audioStartPosition !== undefined ? Math.max(0, nextTrack.audioStartPosition - (this.audioElement?.currentTime || 0)) : this.retryDelayMs / 1000;
+        this.currentlyPlayingEndTimer = window.setTimeout(() => {
+          this.playNextTrack();
+        }, timeUntilNextTrackStartSec * 1000);
+        this.currentlyPlayingEndTimerStartTime = Date.now();
+        this.currentlyPlayingEndTimeoutMs = timeUntilNextTrackStartSec * 1000;
+        this.currentlyPlayingRemainingMs = null;
+        console.warn(`Next track not ready to play, retrying in ${timeUntilNextTrackStartSec * 1000}ms`);
       }
     }
   }
@@ -205,6 +276,7 @@ export class Music {
   getPlaylist(): void {
     if (this.getPlaylistTimer) {
       clearTimeout(this.getPlaylistTimer);
+      this.getPlaylistTimer = null;
     }
     this.http.get<Track[]>(this.playlistUrl).subscribe({
       next: (data) => {
@@ -213,6 +285,7 @@ export class Music {
           this.scheduleNextPoll(this.retryDelayMs);
           return;
         }
+        this.sortPlaylist(data);
         // first run
         if (this.playlist.value.length === 0) {
           if (!data[0].title && !data[0].artist) {
@@ -226,6 +299,16 @@ export class Music {
           data = data.filter(track => track.title && track.artist);
           this.setupNewTrackAndScheduleNextPoll(data[0]);
           this.playlist.next(data);
+          const now = Date.now();
+          const trackEndTimeMs = this.getTrackEndTimeMs(data[0]);
+          const baseTimeUntilNextTrack = trackEndTimeMs - now;
+          const adjustedTimeUntilNextTrack = baseTimeUntilNextTrack;
+          this.currentlyPlayingEndTimer = window.setTimeout(() => {
+            this.playNextTrack();
+          }, adjustedTimeUntilNextTrack);
+          this.currentlyPlayingEndTimerStartTime = Date.now();
+          this.currentlyPlayingEndTimeoutMs = adjustedTimeUntilNextTrack;
+          this.currentlyPlayingRemainingMs = null;
           return;
         }
         // subsequent runs - check if there's a new track
@@ -236,9 +319,25 @@ export class Music {
         const isNewTrack = this.playlist.value[0].schedule_id !== data[0].schedule_id;
         const playlist = this.playlist.value.slice(); // create a copy of the current playlist
         if (isNewTrack) {
-          this.setupNewTrackAndScheduleNextPoll(data[0]);
+          const lagTimeMs = this.setupNewTrackAndScheduleNextPoll(data[0]);
           playlist.unshift(data[0]);
           this.playlist.next(playlist);
+          if (this.currentlyPlayingEndTimer) {
+            clearTimeout(this.currentlyPlayingEndTimer);
+            this.currentlyPlayingEndTimer = null;
+            window.setTimeout(() => {
+              this.playNextTrack();
+            }, lagTimeMs);
+          }
+        } else {
+          if (this.getPlaylistTimer) {
+            clearTimeout(this.getPlaylistTimer);
+            this.getPlaylistTimer = null;
+          }
+          this.getPlaylistTimer = window.setTimeout(() => {
+            console.log('=== Polling API for next track ===');
+            this.getPlaylist();
+          }, this.retryDelayMs);
         }
       },
       error: (error) => {
@@ -253,37 +352,54 @@ export class Music {
     });
   }
 
-  private setupNewTrackAndScheduleNextPoll(track: Track): void {
-    track.audioStartPosition = 0;
+  private sortPlaylist(playlist: Track[]): void {
+    playlist.sort((a, b) => {
+      const dateA = new Date(`${a.date}T${a.time}`).getTime();
+      const dateB = new Date(`${b.date}T${b.time}`).getTime();
+      return dateB - dateA;
+    });
+  }
+
+  private setupNewTrackAndScheduleNextPoll(track: Track): number {
     track.clientStartTime = Date.now();
     track.canPlay = true;
     if (this.lastPollingTimestamp && this.playlist.value[0]) {
-      const recentTrack = this.playlist.value[0];
-      const timeSinceLastPollSec = (Date.now() - this.lastPollingTimestamp) / 1000;
-      recentTrack.audioEndPosition = (recentTrack.audioStartPosition || 0) + timeSinceLastPollSec;
-      recentTrack.clientEndTime = Date.now();
-      // update currentlyPlaying track's runtime to match the elapsed time since it started playing
-      const currentTrackRuntimeSec = recentTrack.audioEndPosition - (recentTrack.audioStartPosition || 0);
-      recentTrack.runtime = `${Math.floor(currentTrackRuntimeSec / 3600)
-        .toString()
-        .padStart(2, '0')}:${Math.floor((currentTrackRuntimeSec % 3600) / 60)
-          .toString()
-          .padStart(2, '0')}:${Math.floor(currentTrackRuntimeSec % 60)
-            .toString()
-            .padStart(2, '0')}`;
-      console.log(`Updated currently playing track with runtime ${recentTrack.runtime} based on elapsed time since last poll`);
-      track.audioStartPosition = recentTrack.audioEndPosition;
+      // check difference in track start time and client time. set timeout for difference
+      const apiStartTime = new Date(`${track.date}T${track.time}`).getTime();
+      const timeDiffMs = Date.now() - apiStartTime;
+      if (timeDiffMs > 0 && !this.lagTimer) {
+        this.lagTimer = window.setTimeout(() => {
+          this.setupNewTrackAndScheduleNextPoll(track);
+          this.lagTimer = null;
+        }, timeDiffMs);
+        return timeDiffMs;
+      }
+      // update previous track end time
+      const previousTrack = track.schedule_id === this.playlist.value[0].schedule_id ? this.playlist.value[1] : this.playlist.value[0];
+      previousTrack.clientEndTime = track.clientStartTime;
+      previousTrack.audioEndPosition = (previousTrack.audioStartPosition || 0) + (previousTrack.clientEndTime - (previousTrack.clientStartTime || 0)) / 1000;
+      // update previous track runtime based on actual start and end times
+      if (previousTrack.audioStartPosition !== undefined && previousTrack.audioEndPosition !== undefined) {
+        const actualRuntimeSec = previousTrack.audioEndPosition - previousTrack.audioStartPosition;
+        const hours = Math.floor(actualRuntimeSec / 3600);
+        const minutes = Math.floor((actualRuntimeSec % 3600) / 60);
+        const seconds = Math.floor(actualRuntimeSec % 60);
+        previousTrack.runtime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      }
+      track.audioStartPosition = previousTrack.audioEndPosition || 0;
     } else {
+      track.audioStartPosition = 0;
       this.currentlyPlaying.next(track);
     }
 
     const now = Date.now();
     const trackEndTimeMs = this.getTrackEndTimeMs(track);
     const baseTimeUntilNextTrack = trackEndTimeMs - now;
-    const adjustedTimeUntilNextTrack = baseTimeUntilNextTrack + 35000;
+    const adjustedTimeUntilNextTrack = baseTimeUntilNextTrack;
 
     this.lastPollingTimestamp = Date.now();
     this.scheduleNextPoll(adjustedTimeUntilNextTrack);
+    return 0;
   }
 
   private getTrackEndTimeMs(track: Track): number {
