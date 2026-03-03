@@ -1,18 +1,19 @@
-import { HttpClient } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
-import { Track } from './track';
+import { HttpClient } from "@angular/common/http";
+import { inject, Injectable } from "@angular/core";
+import { BehaviorSubject } from "rxjs";
+import { Track } from "./track";
 
 @Injectable({
-  providedIn: 'root',
+  providedIn: "root",
 })
 export class Music {
-
   private http = inject(HttpClient);
-  protected readonly playlistUrl = 'https://playlist.cprnetwork.org/won_plus3/KVOQ.json';
+  protected readonly playlistUrl = "https://playlist.cprnetwork.org/won_plus3/KVOQ.json";
   public playlist: BehaviorSubject<Track[]> = new BehaviorSubject<Track[]>([]);
   public currentlyPlaying: BehaviorSubject<Track | null> = new BehaviorSubject<Track | null>(null);
-  public timeUntilNextPollMs: BehaviorSubject<number | null> = new BehaviorSubject<number | null>(null);
+  public timeUntilNextPollMs: BehaviorSubject<number | null> = new BehaviorSubject<number | null>(
+    null,
+  );
   public isPlaying: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
   public audioError: BehaviorSubject<string | null> = new BehaviorSubject<string | null>(null);
   private getPlaylistTimer: number | null = null;
@@ -26,9 +27,9 @@ export class Music {
   private maxAudioRetries = 5;
   private audioRetryDelay = 1000;
   private streamUrls = [
-    'https://stream.cprnetwork.org/cpr3_lo',
-    'https://stream1.cprnetwork.org/cpr3_lo',
-    'https://stream2.cprnetwork.org/cpr3_lo'
+    "https://stream.cprnetwork.org/cpr3_lo",
+    "https://stream1.cprnetwork.org/cpr3_lo",
+    "https://stream2.cprnetwork.org/cpr3_lo",
   ];
   private currentStreamIndex = 0;
   private currentlyPlayingEndTimeoutMs: number | null = null;
@@ -36,7 +37,7 @@ export class Music {
   private currentlyPlayingRemainingMs: number | null = null;
   private lagTimer: number | null = null;
 
-  constructor() { }
+  constructor() {}
 
   setAudioElement(element: HTMLAudioElement): void {
     this.audioElement = element;
@@ -51,10 +52,7 @@ export class Music {
         this.audioElement.play();
         this.isPlaying.next(true);
 
-        if (
-          this.currentlyPlayingRemainingMs !== null &&
-          this.currentlyPlayingRemainingMs > 0
-        ) {
+        if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
           if (this.currentlyPlayingEndTimer) {
             clearTimeout(this.currentlyPlayingEndTimer);
             this.currentlyPlayingEndTimer = null;
@@ -64,9 +62,7 @@ export class Music {
           }, this.currentlyPlayingRemainingMs);
           this.currentlyPlayingEndTimerStartTime = Date.now();
           this.currentlyPlayingEndTimeoutMs = this.currentlyPlayingRemainingMs;
-          console.log(
-            `Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`
-          );
+          console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
         }
       } else {
         // Pausing - capture remaining time before clearing timer
@@ -81,13 +77,11 @@ export class Music {
           const elapsed = Date.now() - this.currentlyPlayingEndTimerStartTime;
           this.currentlyPlayingRemainingMs = Math.max(
             0,
-            this.currentlyPlayingEndTimeoutMs - elapsed
+            this.currentlyPlayingEndTimeoutMs - elapsed,
           );
           clearTimeout(this.currentlyPlayingEndTimer);
           this.currentlyPlayingEndTimer = null;
-          console.log(
-            `Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`
-          );
+          console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
         }
       }
     }
@@ -95,66 +89,62 @@ export class Music {
 
   private setupAudioEventHandlers(): void {
     // Play/Pause state
-    this.audioElement?.addEventListener('play', () => {
+    this.audioElement?.addEventListener("play", () => {
       this.isPlaying.next(true);
     });
 
-    this.audioElement?.addEventListener('pause', () => {
+    this.audioElement?.addEventListener("pause", () => {
       this.isPlaying.next(false);
     });
 
     // Error handling
-    this.audioElement?.addEventListener('error', (e) => {
-      console.error('Audio error:', e);
+    this.audioElement?.addEventListener("error", (e) => {
+      console.error("Audio error:", e);
       this.handleAudioError(this.audioElement!);
     });
 
     // Network stalling
-    this.audioElement?.addEventListener('stalled', () => {
-      console.warn('Audio stream stalled');
-      this.audioError.next('Stream stalled, attempting to reconnect...');
+    this.audioElement?.addEventListener("stalled", () => {
+      console.warn("Audio stream stalled");
+      this.audioError.next("Stream stalled, attempting to reconnect...");
       this.retryStream(this.audioElement!);
     });
 
     // Waiting for data
-    this.audioElement?.addEventListener('waiting', () => {
+    this.audioElement?.addEventListener("waiting", () => {
       // console.log('Audio waiting for data');
     });
 
     // Successfully loading
-    this.audioElement?.addEventListener('loadeddata', () => {
-      console.log('Audio loaded successfully');
+    this.audioElement?.addEventListener("loadeddata", () => {
+      console.log("Audio loaded successfully");
       this.audioError.next(null);
       this.audioRetryCount = 0;
-      // Attempt to autoplay
-      // this.audioElement?.play().catch((err) => {
-      //   console.warn('Autoplay failed:', err.message);
-      // });
     });
 
     // Can play through
-    this.audioElement?.addEventListener('canplaythrough', () => {
+    this.audioElement?.addEventListener("canplaythrough", () => {
       this.audioError.next(null);
     });
   }
 
   private handleAudioError(audio: HTMLAudioElement): void {
     const error = audio.error;
-    let errorMessage = 'Stream error occurred';
+    let errorMessage = "Stream error occurred";
 
     if (error) {
       switch (error.code) {
         case MediaError.MEDIA_ERR_ABORTED:
-          errorMessage = 'Stream aborted';
+          errorMessage = "Stream aborted";
           break;
         case MediaError.MEDIA_ERR_NETWORK:
-          errorMessage = 'Network error';
+          errorMessage = "Network error";
           break;
         case MediaError.MEDIA_ERR_DECODE:
-          errorMessage = 'Stream decode error';
+          errorMessage = "Stream decode error";
           break;
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          errorMessage = 'Stream format not supported';
+          errorMessage = "Stream format not supported";
           break;
       }
     }
@@ -166,16 +156,20 @@ export class Music {
 
   private retryStream(audio: HTMLAudioElement): void {
     if (this.audioRetryCount >= this.maxAudioRetries) {
-      console.error('Max audio retries reached');
-      this.audioError.next('Unable to connect to stream. Please try again later.');
+      console.error("Max audio retries reached");
+      this.audioError.next("Unable to connect to stream. Please try again later.");
       return;
     }
 
     this.audioRetryCount++;
     const delay = this.audioRetryDelay * Math.pow(2, this.audioRetryCount - 1); // Exponential backoff
 
-    console.log(`Retrying stream (attempt ${this.audioRetryCount}/${this.maxAudioRetries}) in ${delay}ms`);
-    this.audioError.next(`Reconnecting... (attempt ${this.audioRetryCount}/${this.maxAudioRetries})`);
+    console.log(
+      `Retrying stream (attempt ${this.audioRetryCount}/${this.maxAudioRetries}) in ${delay}ms`,
+    );
+    this.audioError.next(
+      `Reconnecting... (attempt ${this.audioRetryCount}/${this.maxAudioRetries})`,
+    );
 
     setTimeout(() => {
       // Try next fallback URL
@@ -188,14 +182,16 @@ export class Music {
       // retrying stream means we cannot play anything in the playlist except the current track, so set all tracks to canPlay false except the current one
       const currentTrack = this.currentlyPlaying.value;
       if (currentTrack) {
-        this.playlist.value.forEach(track => {
-          track.canPlay = track.schedule_id === currentTrack.schedule_id;
-        });
+        const updatedPlaylist = this.playlist.value.map((track) => ({
+          ...track,
+          canPlay: track.schedule_id === currentTrack.schedule_id,
+        }));
+        this.playlist.next(updatedPlaylist);
       }
 
       if (this.isPlaying.value) {
         audio.play().catch((err) => {
-          console.error('Failed to resume playback:', err);
+          console.error("Failed to resume playback:", err);
         });
       }
     }, delay);
@@ -211,13 +207,13 @@ export class Music {
     }
 
     this.getPlaylistTimer = window.setTimeout(() => {
-      console.log('=== Polling API for next track ===');
+      console.log("=== Polling API for next track ===");
       this.getPlaylist();
     }, safeDelayMs);
   }
 
   seekToTrack(scheduleId: number): void {
-    const track = this.playlist.value.find(t => t.schedule_id === scheduleId);
+    const track = this.playlist.value.find((t) => t.schedule_id === scheduleId);
     if (track && this.audioElement && track.audioStartPosition !== undefined) {
       this.audioElement.currentTime = track.audioStartPosition;
       this.currentlyPlaying.next(track);
@@ -239,10 +235,17 @@ export class Music {
   private playNextTrack(): void {
     const playlist = this.playlist.value;
     // find playingTrackID in playlist and play the next one
-    const currentIndex = playlist.findIndex(t => t.schedule_id === this.currentlyPlaying.value?.schedule_id);
+    const currentIndex = playlist.findIndex(
+      (t) => t.schedule_id === this.currentlyPlaying.value?.schedule_id,
+    );
     if (currentIndex > 0) {
       const nextTrack = playlist[currentIndex - 1];
-      if (nextTrack.audioStartPosition !== undefined && this.audioElement && nextTrack.canPlay && this.audioElement.currentTime >= nextTrack.audioStartPosition) {
+      if (
+        nextTrack.audioStartPosition !== undefined &&
+        this.audioElement &&
+        nextTrack.canPlay &&
+        this.audioElement.currentTime >= nextTrack.audioStartPosition
+      ) {
         this.currentlyPlaying.next(nextTrack);
         if (this.currentlyPlayingEndTimer) {
           clearTimeout(this.currentlyPlayingEndTimer);
@@ -261,14 +264,19 @@ export class Music {
           clearTimeout(this.currentlyPlayingEndTimer);
           this.currentlyPlayingEndTimer = null;
         }
-        const timeUntilNextTrackStartSec = nextTrack.audioStartPosition !== undefined ? Math.max(0, nextTrack.audioStartPosition - (this.audioElement?.currentTime || 0)) : this.retryDelayMs / 1000;
+        const timeUntilNextTrackStartSec =
+          nextTrack.audioStartPosition !== undefined
+            ? Math.max(0, nextTrack.audioStartPosition - (this.audioElement?.currentTime || 0))
+            : this.retryDelayMs / 1000;
         this.currentlyPlayingEndTimer = window.setTimeout(() => {
           this.playNextTrack();
         }, timeUntilNextTrackStartSec * 1000);
         this.currentlyPlayingEndTimerStartTime = Date.now();
         this.currentlyPlayingEndTimeoutMs = timeUntilNextTrackStartSec * 1000;
         this.currentlyPlayingRemainingMs = null;
-        console.warn(`Next track not ready to play, retrying in ${timeUntilNextTrackStartSec * 1000}ms`);
+        console.warn(
+          `Next track not ready to play, retrying in ${timeUntilNextTrackStartSec * 1000}ms`,
+        );
       }
     }
   }
@@ -296,7 +304,7 @@ export class Music {
           for (let i = 1; i < data.length; i++) {
             data[i].canPlay = false;
           }
-          data = data.filter(track => track.title && track.artist);
+          data = data.filter((track) => track.title && track.artist);
           this.setupNewTrackAndScheduleNextPoll(data[0]);
           this.playlist.next(data);
           const now = Date.now();
@@ -335,20 +343,20 @@ export class Music {
             this.getPlaylistTimer = null;
           }
           this.getPlaylistTimer = window.setTimeout(() => {
-            console.log('=== Polling API for next track ===');
+            console.log("=== Polling API for next track ===");
             this.getPlaylist();
           }, this.retryDelayMs);
         }
       },
       error: (error) => {
-        console.error('Error fetching playlist:', error);
+        console.error("Error fetching playlist:", error);
         if (this.retryCount < this.maxRetries) {
           this.retryCount++;
         } else {
           return;
         }
         this.scheduleNextPoll(this.retryDelayMs);
-      }
+      },
     });
   }
 
@@ -375,16 +383,24 @@ export class Music {
         return timeDiffMs;
       }
       // update previous track end time
-      const previousTrack = track.schedule_id === this.playlist.value[0].schedule_id ? this.playlist.value[1] : this.playlist.value[0];
+      const previousTrack =
+        track.schedule_id === this.playlist.value[0].schedule_id
+          ? this.playlist.value[1]
+          : this.playlist.value[0];
       previousTrack.clientEndTime = track.clientStartTime;
-      previousTrack.audioEndPosition = (previousTrack.audioStartPosition || 0) + (previousTrack.clientEndTime - (previousTrack.clientStartTime || 0)) / 1000;
+      previousTrack.audioEndPosition =
+        (previousTrack.audioStartPosition || 0) +
+        (previousTrack.clientEndTime - (previousTrack.clientStartTime || 0)) / 1000;
       // update previous track runtime based on actual start and end times
-      if (previousTrack.audioStartPosition !== undefined && previousTrack.audioEndPosition !== undefined) {
+      if (
+        previousTrack.audioStartPosition !== undefined &&
+        previousTrack.audioEndPosition !== undefined
+      ) {
         const actualRuntimeSec = previousTrack.audioEndPosition - previousTrack.audioStartPosition;
         const hours = Math.floor(actualRuntimeSec / 3600);
         const minutes = Math.floor((actualRuntimeSec % 3600) / 60);
         const seconds = Math.floor(actualRuntimeSec % 60);
-        previousTrack.runtime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        previousTrack.runtime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
       }
       track.audioStartPosition = previousTrack.audioEndPosition || 0;
     } else {
@@ -404,14 +420,22 @@ export class Music {
 
   private getTrackEndTimeMs(track: Track): number {
     const trackStartTimeMs = new Date(`${track.date}T${track.time}`).getTime();
-    const [hours, minutes, seconds] = track.runtime.split(':').map(Number);
+    const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
     const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
+    if (isNaN(runtimeMs)) {
+      console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
+      return trackStartTimeMs + this.retryDelayMs;
+    }
     return trackStartTimeMs + runtimeMs;
   }
 
   private getTrackEndTimeFromNowMs(track: Track): number {
-    const [hours, minutes, seconds] = track.runtime.split(':').map(Number);
+    const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
     const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
+    if (isNaN(runtimeMs)) {
+      console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
+      return this.retryDelayMs;
+    }
     return runtimeMs;
   }
 }

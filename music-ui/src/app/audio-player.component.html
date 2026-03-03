@@ -14,7 +14,3 @@
     {{ isPlaying() ? '⏸' : '▶' }}
   </button>
 </div>
-
-@if (timeUntilNextPoll() !== null) {
-  <div class="next-poll">Next track in: {{ (timeUntilNextPoll()! / 1000).toFixed(1) }}s</div>
-}

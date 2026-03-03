@@ -13,12 +13,12 @@ import { Track } from './track';
 export class AppTrackListComponent {
   private musicService = inject(Music);
 
-  tracklist = toSignal(this.musicService.playlist, { initialValue: [] as Track[] });
+  tracklist = toSignal(this.musicService.playlist, { requireSync: true });
   private playingTrackId = toSignal(
     this.musicService.currentlyPlaying.pipe(map((track) => track?.schedule_id ?? null)),
-    { initialValue: null as number | null }
+    { requireSync: true }
   );
-  private isPlayingState = toSignal(this.musicService.isPlaying, { initialValue: false });
+  private isPlayingState = toSignal(this.musicService.isPlaying, { requireSync: true });
 
   playTrack(scheduleId: number): void {
     if (this.playingTrackId() === scheduleId) {
