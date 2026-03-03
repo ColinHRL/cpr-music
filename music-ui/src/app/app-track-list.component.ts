@@ -1,55 +1,38 @@
-import { Component, signal, OnInit } from '@angular/core';
+import { Component, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs/operators';
 import { Music } from './music';
 import { Track } from './track';
-import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'app-track-list',
-  imports: [CommonModule],
+  imports: [],
   templateUrl: './app-track-list.component.html',
   styleUrls: ['./app-track-list.component.css']
 })
-export class AppTrackListComponent implements OnInit {
-  tracklist = signal<Track[]>([]);
-  playingTrackId = signal<number | null>(null);
-  isPlaying = signal<boolean>(false);
+export class AppTrackListComponent {
+  private musicService = inject(Music);
 
-  constructor(private musicService: Music) {}
-
-  ngOnInit(): void {
-    this.musicService.playlist.subscribe((data) => {
-      this.tracklist.set(data);
-    });
-
-    this.musicService.currentlyPlaying.subscribe((track) => {
-      this.playingTrackId.set(track?.schedule_id || null);
-    });
-
-    this.musicService.isPlaying.subscribe((playing) => {
-      this.isPlaying.set(playing);
-    });
-  }
+  tracklist = toSignal(this.musicService.playlist, { initialValue: [] as Track[] });
+  private playingTrackId = toSignal(
+    this.musicService.currentlyPlaying.pipe(map((track) => track?.schedule_id ?? null)),
+    { initialValue: null as number | null }
+  );
+  private isPlayingState = toSignal(this.musicService.isPlaying, { initialValue: false });
 
   playTrack(scheduleId: number): void {
-    // If clicking the currently playing track, just toggle play/pause
     if (this.playingTrackId() === scheduleId) {
       this.musicService.togglePlayPause();
     } else {
-      // Otherwise seek to the new track
       this.musicService.seekToTrack(scheduleId);
     }
   }
 
   isTrackPlaying(scheduleId: number): boolean {
-    return this.playingTrackId() === scheduleId && this.isPlaying();
-  }
-
-  trackByScheduleId(_index: number, track: Track): number {
-    return track.schedule_id;
+    return this.playingTrackId() === scheduleId && this.isPlayingState();
   }
 
   buildSearchQuery(track: Track): string {
-    // Build a search query from track info
     const parts = [track.title, track.artist];
     return parts.filter(p => p).join(' ');
   }
