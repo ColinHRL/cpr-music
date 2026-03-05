@@ -1,14 +1,14 @@
-import { Component, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs/operators';
-import { Music } from './music';
-import { Track } from './track';
+import { Component, inject } from "@angular/core";
+import { toSignal } from "@angular/core/rxjs-interop";
+import { map } from "rxjs/operators";
+import { Music } from "./music";
+import { Track } from "./track";
 
 @Component({
-  selector: 'app-track-list',
+  selector: "app-track-list",
   imports: [],
-  templateUrl: './app-track-list.component.html',
-  styleUrls: ['./app-track-list.component.css']
+  templateUrl: "./app-track-list.component.html",
+  styleUrls: ["./app-track-list.component.css"],
 })
 export class AppTrackListComponent {
   private musicService = inject(Music);
@@ -16,7 +16,7 @@ export class AppTrackListComponent {
   tracklist = toSignal(this.musicService.playlist, { requireSync: true });
   private playingTrackId = toSignal(
     this.musicService.currentlyPlaying.pipe(map((track) => track?.schedule_id ?? null)),
-    { requireSync: true }
+    { requireSync: true },
   );
   private isPlayingState = toSignal(this.musicService.isPlaying, { requireSync: true });
 
@@ -34,7 +34,7 @@ export class AppTrackListComponent {
 
   buildSearchQuery(track: Track): string {
     const parts = [track.title, track.artist];
-    return parts.filter(p => p).join(' ');
+    return parts.filter((p) => p).join(" ");
   }
 
   getSpotifyUrl(track: Track): string {

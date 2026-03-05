@@ -10,25 +10,20 @@
 </nav>
 <hr />
 <main class="app-container">
-  <div class="layout-grid">
-    <div class="player-section">
-      @if (currentlyPlaying()?.title && currentlyPlaying()?.artist) {
-      <div class="song">
-        <span class="title">{{ currentlyPlaying()?.title }}</span>
-      </div>
-      <div class="artist">
-        {{ currentlyPlaying()?.artist }}
-      </div>
-      }
-      @else {
-      <div>{{ currentlyPlaying()?.line_1 }}</div>
-      }
-
-      <app-audio-player></app-audio-player>
+  <div class="player-section">
+    @if (currentlyPlaying()?.title && currentlyPlaying()?.artist) {
+    <div class="song">
+      <span class="title">{{ currentlyPlaying()?.title }}</span>
     </div>
+    <div class="artist">{{ currentlyPlaying()?.artist }}</div>
+    } @else {
+    <div>{{ currentlyPlaying()?.line_1 }}</div>
+    }
 
-    <app-track-list></app-track-list>
+    <app-audio-player></app-audio-player>
   </div>
+
+  <app-track-list></app-track-list>
 </main>
 
 <router-outlet />

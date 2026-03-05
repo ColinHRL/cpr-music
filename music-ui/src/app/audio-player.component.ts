@@ -1,27 +1,30 @@
-import { Component, ViewChild, AfterViewInit, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { filter } from 'rxjs/operators';
-import { Music } from './music';
-import { Track } from './track';
+import { Component, ViewChild, AfterViewInit, inject, signal } from "@angular/core";
+import { toSignal } from "@angular/core/rxjs-interop";
+import { filter } from "rxjs/operators";
+import { Music } from "./music";
+import { Track } from "./track";
 
 @Component({
-  selector: 'app-audio-player',
+  selector: "app-audio-player",
   imports: [],
-  templateUrl: './audio-player.component.html',
-  styleUrl: './audio-player.component.css'
+  templateUrl: "./audio-player.component.html",
+  styleUrl: "./audio-player.component.css",
 })
 export class AudioPlayerComponent implements AfterViewInit {
-  @ViewChild('audioPlayer') audioPlayer: any;
+  @ViewChild("audioPlayer") audioPlayer: any;
 
   private musicService = inject(Music);
 
   isPlaying = toSignal(this.musicService.isPlaying, { requireSync: true });
   audioError = toSignal(this.musicService.audioError, { requireSync: true });
-  liveTrack = toSignal(this.musicService.currentlyPlaying.pipe(
-    filter((t): t is Track => t !== null)
-  ));
+  liveTrack = toSignal(
+    this.musicService.currentlyPlaying.pipe(filter((t): t is Track => t !== null)),
+  );
 
-  constructor() { }
+  volume = signal(1);
+  muted = signal(false);
+
+  constructor() {}
 
   ngAfterViewInit(): void {
     if (this.audioPlayer?.nativeElement) {
@@ -31,5 +34,23 @@ export class AudioPlayerComponent implements AfterViewInit {
 
   togglePlayPause(): void {
     this.musicService.togglePlayPause();
+  }
+
+  toggleMute(): void {
+    const nowMuted = !this.muted();
+    this.muted.set(nowMuted);
+    if (this.audioPlayer?.nativeElement) {
+      this.audioPlayer.nativeElement.muted = nowMuted;
+    }
+  }
+
+  onVolumeChange(event: Event): void {
+    const slider = parseFloat((event.target as HTMLInputElement).value);
+    this.volume.set(slider);
+    if (this.audioPlayer?.nativeElement) {
+      // Use a quadratic curve so perceived loudness changes evenly across the slider.
+      // Linear amplitude doesn't match human hearing; squaring it does.
+      this.audioPlayer.nativeElement.volume = slider * slider;
+    }
   }
 }

@@ -13,6 +13,9 @@
 
 .player-controls {
   margin: 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
 }
 
 .play-pause-btn {
@@ -20,12 +23,35 @@
   background-color: #b7410e;
   color: white;
   border-radius: 50%;
-  padding-bottom: 1.3rem;
   width: 7rem;
+  height: 7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .play-pause-btn:hover {
   box-shadow: #333 4px 4px 0;
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.volume-icon {
+  font-size: 1.5rem;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.volume-slider {
+  width: 8rem;
+  -webkit-accent-color: #b7410e;
+  accent-color: #b7410e;
+  cursor: pointer;
 }
 
 .next-poll {

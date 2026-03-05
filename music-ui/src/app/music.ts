@@ -362,8 +362,8 @@ export class Music {
 
   private sortPlaylist(playlist: Track[]): void {
     playlist.sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time}`).getTime();
-      const dateB = new Date(`${b.date}T${b.time}`).getTime();
+      const dateA = this.parseMountainTime(a.date, a.time).getTime();
+      const dateB = this.parseMountainTime(b.date, b.time).getTime();
       return dateB - dateA;
     });
   }
@@ -373,7 +373,7 @@ export class Music {
     track.canPlay = true;
     if (this.lastPollingTimestamp && this.playlist.value[0]) {
       // check difference in track start time and client time. set timeout for difference
-      const apiStartTime = new Date(`${track.date}T${track.time}`).getTime();
+      const apiStartTime = this.parseMountainTime(track.date, track.time).getTime();
       const timeDiffMs = Date.now() - apiStartTime;
       if (timeDiffMs > 0 && !this.lagTimer) {
         this.lagTimer = window.setTimeout(() => {
@@ -419,7 +419,7 @@ export class Music {
   }
 
   private getTrackEndTimeMs(track: Track): number {
-    const trackStartTimeMs = new Date(`${track.date}T${track.time}`).getTime();
+    const trackStartTimeMs = this.parseMountainTime(track.date, track.time).getTime();
     const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
     const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
     if (isNaN(runtimeMs)) {
@@ -427,6 +427,23 @@ export class Music {
       return trackStartTimeMs + this.retryDelayMs;
     }
     return trackStartTimeMs + runtimeMs;
+  }
+
+  /** Parse a date/time from the CPR playlist API, which reports times in Mountain Time (America/Denver). */
+  private parseMountainTime(dateStr: string, timeStr: string): Date {
+    // Parse as MST (UTC-7) first, then check if it should be MDT (UTC-6)
+    const mstDate = new Date(`${dateStr}T${timeStr}-07:00`);
+    const mtHour = parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Denver",
+        hour: "numeric",
+        hour12: false,
+      }).format(mstDate),
+    );
+    if (mtHour % 24 === parseInt(timeStr.split(":")[0])) {
+      return mstDate;
+    }
+    return new Date(`${dateStr}T${timeStr}-06:00`);
   }
 
   private getTrackEndTimeFromNowMs(track: Track): number {
