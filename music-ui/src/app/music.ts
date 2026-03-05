@@ -216,6 +216,9 @@ export class Music {
     const track = this.playlist.value.find((t) => t.schedule_id === scheduleId);
     if (track && this.audioElement && track.audioStartPosition !== undefined) {
       this.audioElement.currentTime = track.audioStartPosition;
+      this.audioElement.play().catch((err) => {
+        console.error("Failed to play track:", err);
+      });
       this.currentlyPlaying.next(track);
       if (this.currentlyPlayingEndTimer) {
         clearTimeout(this.currentlyPlayingEndTimer);
@@ -379,6 +382,8 @@ export class Music {
         this.lagTimer = window.setTimeout(() => {
           this.setupNewTrackAndScheduleNextPoll(track);
           this.lagTimer = null;
+          // Re-emit so the template picks up audioStartPosition now that it's been set
+          this.playlist.next(this.playlist.value.slice());
         }, timeDiffMs);
         return timeDiffMs;
       }
