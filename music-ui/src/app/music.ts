@@ -1,12 +1,18 @@
 import { HttpClient } from "@angular/common/http";
-import { inject, Injectable } from "@angular/core";
+import { inject, Injectable, OnDestroy } from "@angular/core";
 import { BehaviorSubject } from "rxjs";
 import { Track } from "./track";
+
+interface ManagedTimer {
+  handle: number | null;
+  deadlineMs: number | null;
+  callback: (() => void) | null;
+}
 
 @Injectable({
   providedIn: "root",
 })
-export class Music {
+export class Music implements OnDestroy {
   private http = inject(HttpClient);
   protected readonly playlistUrl = "https://playlist.cprnetwork.org/won_plus3/KVOQ.json";
   public playlist: BehaviorSubject<Track[]> = new BehaviorSubject<Track[]>([]);
@@ -16,13 +22,15 @@ export class Music {
   );
   public isPlaying: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
   public audioError: BehaviorSubject<string | null> = new BehaviorSubject<string | null>(null);
-  private getPlaylistTimer: number | null = null;
-  private currentlyPlayingEndTimer: number | null = null;
+  private getPlaylistTimer: ManagedTimer = this.createManagedTimer();
+  private currentlyPlayingEndTimer: ManagedTimer = this.createManagedTimer();
   private lastPollingTimestamp: number | null = null;
   private retryDelayMs = 5000;
   private maxRetries = 5;
   private retryCount = 0;
   private audioElement: HTMLAudioElement | null = null;
+  private audioEventAbortController: AbortController | null = null;
+  private lagCompensatedTrackIds = new Set<number>();
   private audioRetryCount = 0;
   private maxAudioRetries = 5;
   private audioRetryDelay = 1000;
@@ -32,19 +40,25 @@ export class Music {
     "https://stream2.cprnetwork.org/cpr3_lo",
   ];
   private currentStreamIndex = 0;
-  private currentlyPlayingEndTimeoutMs: number | null = null;
-  private currentlyPlayingEndTimerStartTime: number | null = null;
   private currentlyPlayingRemainingMs: number | null = null;
-  private lagTimer: number | null = null;
+  private lagTimer: ManagedTimer = this.createManagedTimer();
+  private streamRetryTimer: ManagedTimer = this.createManagedTimer();
 
-  constructor() {}
+  /** Registers visibility handling so timers can be reconciled when the tab resumes. */
+  constructor() {
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    }
+  }
 
+  /** Binds the shared audio element to the service and starts the initial playlist fetch. */
   setAudioElement(element: HTMLAudioElement): void {
     this.audioElement = element;
     this.setupAudioEventHandlers();
     this.getPlaylist();
   }
 
+  /** Toggles playback and preserves the current-track timer so resume stays in sync. */
   togglePlayPause(): void {
     if (this.audioElement) {
       if (this.audioElement.paused) {
@@ -53,15 +67,7 @@ export class Music {
         this.isPlaying.next(true);
 
         if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
-          if (this.currentlyPlayingEndTimer) {
-            clearTimeout(this.currentlyPlayingEndTimer);
-            this.currentlyPlayingEndTimer = null;
-          }
-          this.currentlyPlayingEndTimer = window.setTimeout(() => {
-            this.playNextTrack();
-          }, this.currentlyPlayingRemainingMs);
-          this.currentlyPlayingEndTimerStartTime = Date.now();
-          this.currentlyPlayingEndTimeoutMs = this.currentlyPlayingRemainingMs;
+          this.scheduleCurrentTrackAdvance(this.currentlyPlayingRemainingMs);
           console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
         }
       } else {
@@ -69,65 +75,65 @@ export class Music {
         this.audioElement.pause();
         this.isPlaying.next(false);
 
-        if (
-          this.currentlyPlayingEndTimer &&
-          this.currentlyPlayingEndTimeoutMs &&
-          this.currentlyPlayingEndTimerStartTime
-        ) {
-          const elapsed = Date.now() - this.currentlyPlayingEndTimerStartTime;
+        if (this.currentlyPlayingEndTimer.deadlineMs !== null) {
           this.currentlyPlayingRemainingMs = Math.max(
             0,
-            this.currentlyPlayingEndTimeoutMs - elapsed,
+            this.currentlyPlayingEndTimer.deadlineMs - Date.now(),
           );
-          clearTimeout(this.currentlyPlayingEndTimer);
-          this.currentlyPlayingEndTimer = null;
+          this.clearManagedTimer(this.currentlyPlayingEndTimer);
           console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
         }
       }
     }
   }
 
+  /** Wires audio lifecycle events into playback state, retry logic, and user-facing errors. */
   private setupAudioEventHandlers(): void {
-    // Play/Pause state
-    this.audioElement?.addEventListener("play", () => {
-      this.isPlaying.next(true);
-    });
+    if (!this.audioElement) {
+      return;
+    }
 
-    this.audioElement?.addEventListener("pause", () => {
+    this.audioEventAbortController?.abort();
+    this.audioEventAbortController = new AbortController();
+    const { signal } = this.audioEventAbortController;
+    const audio = this.audioElement;
+
+    // Play/Pause state
+    audio.addEventListener("play", () => {
+      this.isPlaying.next(true);
+    }, { signal });
+
+    audio.addEventListener("pause", () => {
       this.isPlaying.next(false);
-    });
+    }, { signal });
 
     // Error handling
-    this.audioElement?.addEventListener("error", (e) => {
+    audio.addEventListener("error", (e) => {
       console.error("Audio error:", e);
-      this.handleAudioError(this.audioElement!);
-    });
+      this.handleAudioError(audio);
+    }, { signal });
 
     // Network stalling
-    this.audioElement?.addEventListener("stalled", () => {
+    audio.addEventListener("stalled", () => {
       console.warn("Audio stream stalled");
       this.audioError.next("Stream stalled, attempting to reconnect...");
-      this.retryStream(this.audioElement!);
-    });
-
-    // Waiting for data
-    this.audioElement?.addEventListener("waiting", () => {
-      // console.log('Audio waiting for data');
-    });
+      this.retryStream(audio);
+    }, { signal });
 
     // Successfully loading
-    this.audioElement?.addEventListener("loadeddata", () => {
+    audio.addEventListener("loadeddata", () => {
       console.log("Audio loaded successfully");
       this.audioError.next(null);
       this.audioRetryCount = 0;
-    });
+    }, { signal });
 
     // Can play through
-    this.audioElement?.addEventListener("canplaythrough", () => {
+    audio.addEventListener("canplaythrough", () => {
       this.audioError.next(null);
-    });
+    }, { signal });
   }
 
+  /** Converts native audio errors into a readable message and triggers stream recovery. */
   private handleAudioError(audio: HTMLAudioElement): void {
     const error = audio.error;
     let errorMessage = "Stream error occurred";
@@ -151,9 +157,10 @@ export class Music {
 
     console.error(`Audio error: ${errorMessage}`);
     this.audioError.next(errorMessage);
-    this.retryStream(this.audioElement!);
+    this.retryStream(audio);
   }
 
+  /** Retries the stream with exponential backoff and rotates through the fallback URLs. */
   private retryStream(audio: HTMLAudioElement): void {
     if (this.audioRetryCount >= this.maxAudioRetries) {
       console.error("Max audio retries reached");
@@ -171,7 +178,7 @@ export class Music {
       `Reconnecting... (attempt ${this.audioRetryCount}/${this.maxAudioRetries})`,
     );
 
-    setTimeout(() => {
+    this.scheduleManagedTimer(this.streamRetryTimer, delay, () => {
       // Try next fallback URL
       this.currentStreamIndex = (this.currentStreamIndex + 1) % this.streamUrls.length;
       const newUrl = this.streamUrls[this.currentStreamIndex];
@@ -194,24 +201,20 @@ export class Music {
           console.error("Failed to resume playback:", err);
         });
       }
-    }, delay);
+    });
   }
 
+  /** Schedules the next playlist poll and publishes the remaining wait for the UI. */
   private scheduleNextPoll(delayMs: number): void {
     const safeDelayMs = Math.max(0, delayMs);
     this.timeUntilNextPollMs.next(safeDelayMs);
-
-    if (this.getPlaylistTimer) {
-      clearTimeout(this.getPlaylistTimer);
-      this.getPlaylistTimer = null;
-    }
-
-    this.getPlaylistTimer = window.setTimeout(() => {
+    this.scheduleManagedTimer(this.getPlaylistTimer, safeDelayMs, () => {
       console.log("=== Polling API for next track ===");
       this.getPlaylist();
-    }, safeDelayMs);
+    });
   }
 
+  /** Jumps playback to a known track position and re-arms the auto-advance timer. */
   seekToTrack(scheduleId: number): void {
     const track = this.playlist.value.find((t) => t.schedule_id === scheduleId);
     if (track && this.audioElement && track.audioStartPosition !== undefined) {
@@ -220,21 +223,14 @@ export class Music {
         console.error("Failed to play track:", err);
       });
       this.currentlyPlaying.next(track);
-      if (this.currentlyPlayingEndTimer) {
-        clearTimeout(this.currentlyPlayingEndTimer);
-        this.currentlyPlayingEndTimer = null;
-      }
       const timeoutMs = this.getTrackEndTimeFromNowMs(track);
-      this.currentlyPlayingEndTimer = window.setTimeout(() => {
-        this.playNextTrack();
-      }, timeoutMs);
-      this.currentlyPlayingEndTimerStartTime = Date.now();
-      this.currentlyPlayingEndTimeoutMs = timeoutMs;
       this.currentlyPlayingRemainingMs = null;
+      this.scheduleCurrentTrackAdvance(timeoutMs);
       console.log(`Seeking to ${track.audioStartPosition.toFixed(2)}s in track: ${track.title}`);
     }
   }
 
+  /** Advances to the next playable track in history or retries shortly if it is not ready yet. */
   private playNextTrack(): void {
     const playlist = this.playlist.value;
     // find playingTrackID in playlist and play the next one
@@ -250,33 +246,17 @@ export class Music {
         this.audioElement.currentTime >= nextTrack.audioStartPosition
       ) {
         this.currentlyPlaying.next(nextTrack);
-        if (this.currentlyPlayingEndTimer) {
-          clearTimeout(this.currentlyPlayingEndTimer);
-          this.currentlyPlayingEndTimer = null;
-        }
         const timeoutMs = this.getTrackEndTimeFromNowMs(nextTrack);
-        this.currentlyPlayingEndTimer = window.setTimeout(() => {
-          this.playNextTrack();
-        }, timeoutMs);
-        this.currentlyPlayingEndTimerStartTime = Date.now();
-        this.currentlyPlayingEndTimeoutMs = timeoutMs;
         this.currentlyPlayingRemainingMs = null;
+        this.scheduleCurrentTrackAdvance(timeoutMs);
         console.log(`Automatically advancing to next track: ${nextTrack.title}`);
       } else {
-        if (this.currentlyPlayingEndTimer) {
-          clearTimeout(this.currentlyPlayingEndTimer);
-          this.currentlyPlayingEndTimer = null;
-        }
         const timeUntilNextTrackStartSec =
           nextTrack.audioStartPosition !== undefined
             ? Math.max(0, nextTrack.audioStartPosition - (this.audioElement?.currentTime || 0))
             : this.retryDelayMs / 1000;
-        this.currentlyPlayingEndTimer = window.setTimeout(() => {
-          this.playNextTrack();
-        }, timeUntilNextTrackStartSec * 1000);
-        this.currentlyPlayingEndTimerStartTime = Date.now();
-        this.currentlyPlayingEndTimeoutMs = timeUntilNextTrackStartSec * 1000;
         this.currentlyPlayingRemainingMs = null;
+        this.scheduleCurrentTrackAdvance(timeUntilNextTrackStartSec * 1000);
         console.warn(
           `Next track not ready to play, retrying in ${timeUntilNextTrackStartSec * 1000}ms`,
         );
@@ -284,11 +264,9 @@ export class Music {
     }
   }
 
+  /** Fetches the latest playlist snapshot and updates playback state around track changes. */
   getPlaylist(): void {
-    if (this.getPlaylistTimer) {
-      clearTimeout(this.getPlaylistTimer);
-      this.getPlaylistTimer = null;
-    }
+    this.clearManagedTimer(this.getPlaylistTimer);
     this.http.get<Track[]>(this.playlistUrl).subscribe({
       next: (data) => {
         this.retryCount = 0; // reset retry count on success
@@ -313,13 +291,8 @@ export class Music {
           const now = Date.now();
           const trackEndTimeMs = this.getTrackEndTimeMs(data[0]);
           const baseTimeUntilNextTrack = trackEndTimeMs - now;
-          const adjustedTimeUntilNextTrack = baseTimeUntilNextTrack;
-          this.currentlyPlayingEndTimer = window.setTimeout(() => {
-            this.playNextTrack();
-          }, adjustedTimeUntilNextTrack);
-          this.currentlyPlayingEndTimerStartTime = Date.now();
-          this.currentlyPlayingEndTimeoutMs = adjustedTimeUntilNextTrack;
           this.currentlyPlayingRemainingMs = null;
+          this.scheduleCurrentTrackAdvance(baseTimeUntilNextTrack);
           return;
         }
         // subsequent runs - check if there's a new track
@@ -333,36 +306,24 @@ export class Music {
           const lagTimeMs = this.setupNewTrackAndScheduleNextPoll(data[0]);
           playlist.unshift(data[0]);
           this.playlist.next(playlist);
-          if (this.currentlyPlayingEndTimer) {
-            clearTimeout(this.currentlyPlayingEndTimer);
-            this.currentlyPlayingEndTimer = null;
-            window.setTimeout(() => {
-              this.playNextTrack();
-            }, lagTimeMs);
-          }
+          this.scheduleCurrentTrackAdvance(lagTimeMs);
         } else {
-          if (this.getPlaylistTimer) {
-            clearTimeout(this.getPlaylistTimer);
-            this.getPlaylistTimer = null;
-          }
-          this.getPlaylistTimer = window.setTimeout(() => {
-            console.log("=== Polling API for next track ===");
-            this.getPlaylist();
-          }, this.retryDelayMs);
+          this.scheduleNextPoll(this.retryDelayMs);
         }
       },
       error: (error) => {
         console.error("Error fetching playlist:", error);
         if (this.retryCount < this.maxRetries) {
           this.retryCount++;
+          this.scheduleNextPoll(this.retryDelayMs);
         } else {
-          return;
+          this.audioError.next("Unable to fetch playlist. Please refresh the page.");
         }
-        this.scheduleNextPoll(this.retryDelayMs);
       },
     });
   }
 
+  /** Sorts API results so the newest track is always first in the playlist array. */
   private sortPlaylist(playlist: Track[]): void {
     playlist.sort((a, b) => {
       const dateA = this.parseMountainTime(a.date, a.time).getTime();
@@ -371,6 +332,7 @@ export class Music {
     });
   }
 
+  /** Initializes a new current track, updates prior track metadata, and schedules the next poll. */
   private setupNewTrackAndScheduleNextPoll(track: Track): number {
     track.clientStartTime = Date.now();
     track.canPlay = true;
@@ -378,13 +340,13 @@ export class Music {
       // check difference in track start time and client time. set timeout for difference
       const apiStartTime = this.parseMountainTime(track.date, track.time).getTime();
       const timeDiffMs = Date.now() - apiStartTime;
-      if (timeDiffMs > 0 && !this.lagTimer) {
-        this.lagTimer = window.setTimeout(() => {
+      if (timeDiffMs > 0 && !this.lagTimer.callback && !this.lagCompensatedTrackIds.has(track.schedule_id)) {
+        this.lagCompensatedTrackIds.add(track.schedule_id);
+        this.scheduleManagedTimer(this.lagTimer, timeDiffMs, () => {
           this.setupNewTrackAndScheduleNextPoll(track);
-          this.lagTimer = null;
           // Re-emit so the template picks up audioStartPosition now that it's been set
           this.playlist.next(this.playlist.value.slice());
-        }, timeDiffMs);
+        });
         return timeDiffMs;
       }
       // update previous track end time
@@ -392,22 +354,26 @@ export class Music {
         track.schedule_id === this.playlist.value[0].schedule_id
           ? this.playlist.value[1]
           : this.playlist.value[0];
-      previousTrack.clientEndTime = track.clientStartTime;
-      previousTrack.audioEndPosition =
-        (previousTrack.audioStartPosition || 0) +
-        (previousTrack.clientEndTime - (previousTrack.clientStartTime || 0)) / 1000;
-      // update previous track runtime based on actual start and end times
-      if (
-        previousTrack.audioStartPosition !== undefined &&
-        previousTrack.audioEndPosition !== undefined
-      ) {
-        const actualRuntimeSec = previousTrack.audioEndPosition - previousTrack.audioStartPosition;
-        const hours = Math.floor(actualRuntimeSec / 3600);
-        const minutes = Math.floor((actualRuntimeSec % 3600) / 60);
-        const seconds = Math.floor(actualRuntimeSec % 60);
-        previousTrack.runtime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      if (previousTrack) {
+        previousTrack.clientEndTime = track.clientStartTime;
+        previousTrack.audioEndPosition =
+          (previousTrack.audioStartPosition || 0) +
+          (previousTrack.clientEndTime - (previousTrack.clientStartTime || 0)) / 1000;
+        // update previous track runtime based on actual start and end times
+        if (
+          previousTrack.audioStartPosition !== undefined &&
+          previousTrack.audioEndPosition !== undefined
+        ) {
+          const actualRuntimeSec = previousTrack.audioEndPosition - previousTrack.audioStartPosition;
+          const hours = Math.floor(actualRuntimeSec / 3600);
+          const minutes = Math.floor((actualRuntimeSec % 3600) / 60);
+          const seconds = Math.floor(actualRuntimeSec % 60);
+          previousTrack.runtime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+        }
+        track.audioStartPosition = previousTrack.audioEndPosition || 0;
+      } else {
+        track.audioStartPosition = 0;
       }
-      track.audioStartPosition = previousTrack.audioEndPosition || 0;
     } else {
       track.audioStartPosition = 0;
       this.currentlyPlaying.next(track);
@@ -416,25 +382,23 @@ export class Music {
     const now = Date.now();
     const trackEndTimeMs = this.getTrackEndTimeMs(track);
     const baseTimeUntilNextTrack = trackEndTimeMs - now;
-    const adjustedTimeUntilNextTrack = baseTimeUntilNextTrack;
 
     this.lastPollingTimestamp = Date.now();
-    this.scheduleNextPoll(adjustedTimeUntilNextTrack);
+    this.scheduleNextPoll(baseTimeUntilNextTrack);
     return 0;
   }
 
+  /** Calculates the absolute end time for a track using its start timestamp and runtime. */
   private getTrackEndTimeMs(track: Track): number {
     const trackStartTimeMs = this.parseMountainTime(track.date, track.time).getTime();
-    const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
-    const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
-    if (isNaN(runtimeMs)) {
-      console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
+    const runtimeMs = this.getTrackRuntimeMs(track);
+    if (runtimeMs === null) {
       return trackStartTimeMs + this.retryDelayMs;
     }
     return trackStartTimeMs + runtimeMs;
   }
 
-  /** Parse a date/time from the CPR playlist API, which reports times in Mountain Time (America/Denver). */
+  /** Parses CPR playlist timestamps in America/Denver while accounting for DST offsets. */
   private parseMountainTime(dateStr: string, timeStr: string): Date {
     // Parse as MST (UTC-7) first, then check if it should be MDT (UTC-6)
     const mstDate = new Date(`${dateStr}T${timeStr}-07:00`);
@@ -451,13 +415,117 @@ export class Music {
     return new Date(`${dateStr}T${timeStr}-06:00`);
   }
 
+  /** Converts a track runtime into a delay from now for local playback scheduling. */
   private getTrackEndTimeFromNowMs(track: Track): number {
+    const runtimeMs = this.getTrackRuntimeMs(track);
+    return runtimeMs ?? this.retryDelayMs;
+  }
+
+  /** Parses a track runtime string once and centralizes invalid-runtime handling. */
+  private getTrackRuntimeMs(track: Track): number | null {
+    if (!track.runtime) {
+      return null;
+    }
     const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
     const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
     if (isNaN(runtimeMs)) {
       console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
-      return this.retryDelayMs;
+      return null;
     }
     return runtimeMs;
+  }
+
+  /** Creates timer state that can be paused, resumed, and reconciled after tab suspension. */
+  private createManagedTimer(): ManagedTimer {
+    return {
+      handle: null,
+      deadlineMs: null,
+      callback: null,
+    };
+  }
+
+  /** Replaces any existing timeout on a managed timer with a new scheduled callback. */
+  private scheduleManagedTimer(timer: ManagedTimer, delayMs: number, callback: () => void): void {
+    const safeDelayMs = Math.max(0, delayMs);
+
+    this.clearManagedTimer(timer);
+    timer.deadlineMs = Date.now() + safeDelayMs;
+    timer.callback = callback;
+    timer.handle = window.setTimeout(() => {
+      this.runManagedTimer(timer);
+    }, safeDelayMs);
+  }
+
+  /** Clears a managed timer and removes any pending callback metadata. */
+  private clearManagedTimer(timer: ManagedTimer): void {
+    if (timer.handle !== null) {
+      clearTimeout(timer.handle);
+    }
+
+    timer.handle = null;
+    timer.deadlineMs = null;
+    timer.callback = null;
+  }
+
+  /** Executes a managed timer callback after first resetting its bookkeeping state. */
+  private runManagedTimer(timer: ManagedTimer): void {
+    const callback = this.takeManagedTimerCallback(timer);
+    callback?.();
+  }
+
+  /** Clears a managed timer while returning its callback so callers can safely invoke it later. */
+  private takeManagedTimerCallback(timer: ManagedTimer): (() => void) | null {
+    const callback = timer.callback;
+    this.clearManagedTimer(timer);
+    return callback;
+  }
+
+  /** Schedules when the service should attempt to advance playback to the next track. */
+  private scheduleCurrentTrackAdvance(delayMs: number): void {
+    this.scheduleManagedTimer(this.currentlyPlayingEndTimer, delayMs, () => {
+      this.currentlyPlayingRemainingMs = null;
+      this.playNextTrack();
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
+    this.audioEventAbortController?.abort();
+  }
+
+  /** Reconciles all managed timers after the document becomes visible again. */
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+
+    for (const timer of [
+      this.streamRetryTimer,
+      this.lagTimer,
+      this.currentlyPlayingEndTimer,
+      this.getPlaylistTimer,
+    ]) {
+      this.reconcileManagedTimer(timer);
+    }
+  };
+
+  /** Restarts a timer using its stored deadline or fires it immediately if that deadline passed. */
+  private reconcileManagedTimer(timer: ManagedTimer): void {
+    if (!timer.callback || timer.deadlineMs === null) {
+      return;
+    }
+
+    const callback = timer.callback;
+    const remainingMs = timer.deadlineMs - Date.now();
+    this.clearManagedTimer(timer);
+
+    if (remainingMs <= 0) {
+      callback();
+      return;
+    }
+
+    this.scheduleManagedTimer(timer, remainingMs, callback);
   }
 }
