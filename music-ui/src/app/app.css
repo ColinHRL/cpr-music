@@ -23,7 +23,7 @@
     font-size: 1rem;
     background-color: #b7410e;
     color: white;
-    border: none;
+    border: 1px solid #b7410e;
     border-radius: 4px;
     transition: background-color 0.3s;
     text-decoration: none;
@@ -41,28 +41,41 @@
 
   .station-buttons {
     display: flex;
-    gap: 0.25rem;
   }
 
   .station-button {
-    padding: 0.4rem 0.75rem;
-    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
     background-color: transparent;
     color: #cccccc;
     border: 1px solid #555;
-    border-radius: 4px;
+    border-radius: 0;
     cursor: pointer;
     transition: background-color 0.2s, color 0.2s, border-color 0.2s;
 
-    &:hover {
+    &:first-child {
+      border-radius: 4px 0 0 4px;
+      margin-right: 0;
+    }
+
+    &:last-child {
+      border-radius: 0 4px 4px 0;
+      margin-left: -1px;
+    }
+
+    &:hover:not(.active) {
       border-color: #f06f37;
       color: #f0f0f0;
+      z-index: 1;
+      position: relative;
     }
 
     &.active {
       background-color: #b7410e;
       border-color: #b7410e;
       color: white;
+      z-index: 2;
+      position: relative;
     }
   }
 }
