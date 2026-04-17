@@ -14,4 +14,9 @@ import { AppTrackListComponent } from "./app-track-list.component";
 export class App {
   private musicService = inject(Music);
   currentlyPlaying = toSignal(this.musicService.currentlyPlaying, { requireSync: true });
+  currentStation = toSignal(this.musicService.currentStation, { requireSync: true });
+
+  switchStation(id: 'indie' | 'classical'): void {
+    this.musicService.switchStation(id);
+  }
 }

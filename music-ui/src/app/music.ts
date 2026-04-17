@@ -9,12 +9,45 @@ interface ManagedTimer {
   callback: (() => void) | null;
 }
 
+interface Station {
+  id: 'indie' | 'classical';
+  name: string;
+  siteUrl: string;
+  playlistUrl: string;
+  streamUrls: string[];
+}
+
+const STATIONS: Record<'indie' | 'classical', Station> = {
+  indie: {
+    id: 'indie',
+    name: 'CPR Music',
+    siteUrl: 'https://www.cpr.org/indie/',
+    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOQ.json',
+    streamUrls: [
+      'https://stream.cprnetwork.org/cpr3_lo',
+      'https://stream1.cprnetwork.org/cpr3_lo',
+      'https://stream2.cprnetwork.org/cpr3_lo',
+    ],
+  },
+  classical: {
+    id: 'classical',
+    name: 'CPR Classical',
+    siteUrl: 'https://www.cpr.org/classical/',
+    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOD.json',
+    streamUrls: [
+      'https://stream.cprnetwork.org/cpr2_lo',
+      'https://stream1.cprnetwork.org/cpr2_lo',
+      'https://stream2.cprnetwork.org/cpr2_lo',
+    ],
+  },
+};
+
 @Injectable({
   providedIn: "root",
 })
 export class Music implements OnDestroy {
   private http = inject(HttpClient);
-  protected readonly playlistUrl = "https://playlist.cprnetwork.org/won_plus3/KVOQ.json";
+  public currentStation: BehaviorSubject<Station> = new BehaviorSubject<Station>(STATIONS.indie);
   public playlist: BehaviorSubject<Track[]> = new BehaviorSubject<Track[]>([]);
   public currentlyPlaying: BehaviorSubject<Track | null> = new BehaviorSubject<Track | null>(null);
   public timeUntilNextPollMs: BehaviorSubject<number | null> = new BehaviorSubject<number | null>(
@@ -34,11 +67,6 @@ export class Music implements OnDestroy {
   private audioRetryCount = 0;
   private maxAudioRetries = 5;
   private audioRetryDelay = 1000;
-  private streamUrls = [
-    "https://stream.cprnetwork.org/cpr3_lo",
-    "https://stream1.cprnetwork.org/cpr3_lo",
-    "https://stream2.cprnetwork.org/cpr3_lo",
-  ];
   private currentStreamIndex = 0;
   private currentlyPlayingRemainingMs: number | null = null;
   private lagTimer: ManagedTimer = this.createManagedTimer();
@@ -180,8 +208,8 @@ export class Music implements OnDestroy {
 
     this.scheduleManagedTimer(this.streamRetryTimer, delay, () => {
       // Try next fallback URL
-      this.currentStreamIndex = (this.currentStreamIndex + 1) % this.streamUrls.length;
-      const newUrl = this.streamUrls[this.currentStreamIndex];
+      this.currentStreamIndex = (this.currentStreamIndex + 1) % this.currentStation.value.streamUrls.length;
+      const newUrl = this.currentStation.value.streamUrls[this.currentStreamIndex];
 
       console.log(`Switching to stream: ${newUrl}`);
       audio.src = newUrl;
@@ -267,7 +295,7 @@ export class Music implements OnDestroy {
   /** Fetches the latest playlist snapshot and updates playback state around track changes. */
   getPlaylist(): void {
     this.clearManagedTimer(this.getPlaylistTimer);
-    this.http.get<Track[]>(this.playlistUrl).subscribe({
+    this.http.get<Track[]>(this.currentStation.value.playlistUrl).subscribe({
       next: (data) => {
         this.retryCount = 0; // reset retry count on success
         if (data.length === 0) {
@@ -486,6 +514,45 @@ export class Music implements OnDestroy {
       this.currentlyPlayingRemainingMs = null;
       this.playNextTrack();
     });
+  }
+
+  /** Clears all state and restarts the service pointed at a different station. */
+  switchStation(id: 'indie' | 'classical'): void {
+    if (this.currentStation.value.id === id) {
+      return;
+    }
+
+    // Cancel all pending timers
+    this.clearManagedTimer(this.getPlaylistTimer);
+    this.clearManagedTimer(this.currentlyPlayingEndTimer);
+    this.clearManagedTimer(this.lagTimer);
+    this.clearManagedTimer(this.streamRetryTimer);
+
+    // Reset counters and state
+    this.retryCount = 0;
+    this.audioRetryCount = 0;
+    this.currentStreamIndex = 0;
+    this.currentlyPlayingRemainingMs = null;
+    this.lastPollingTimestamp = null;
+    this.lagCompensatedTrackIds.clear();
+
+    // Clear public state
+    this.playlist.next([]);
+    this.currentlyPlaying.next(null);
+    this.audioError.next(null);
+    this.timeUntilNextPollMs.next(null);
+
+    this.currentStation.next(STATIONS[id]);
+
+    if (this.audioElement) {
+      this.audioElement.src = STATIONS[id].streamUrls[0];
+      this.audioElement.load();
+      this.audioElement.play().catch((err) => {
+        console.error('Failed to start new station stream:', err);
+      });
+    }
+
+    this.getPlaylist();
   }
 
   ngOnDestroy(): void {
