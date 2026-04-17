@@ -12,6 +12,7 @@ interface ManagedTimer {
 interface Station {
   id: 'indie' | 'classical';
   name: string;
+  tabTitle: string;
   siteUrl: string;
   playlistUrl: string;
   streamUrls: string[];
@@ -21,6 +22,7 @@ const STATIONS: Record<'indie' | 'classical', Station> = {
   indie: {
     id: 'indie',
     name: 'CPR Music',
+    tabTitle: 'Indie - CPR',
     siteUrl: 'https://www.cpr.org/indie/',
     playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOQ.json',
     streamUrls: [
@@ -32,6 +34,7 @@ const STATIONS: Record<'indie' | 'classical', Station> = {
   classical: {
     id: 'classical',
     name: 'CPR Classical',
+    tabTitle: 'Classical - CPR',
     siteUrl: 'https://www.cpr.org/classical/',
     playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOD.json',
     streamUrls: [
