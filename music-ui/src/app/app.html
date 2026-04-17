@@ -2,12 +2,13 @@
   <div class="cpr-header">
     <a class="app-title" [href]="currentStation().siteUrl" target="_blank" rel="noopener noreferrer">CPR</a>
     <span class="app-title-separator">|</span>
-    <span class="app-subtitle">Colorado Public Radio</span>
+    <a class="app-subtitle" href="https://www.cpr.org/" target="_blank" rel="noopener noreferrer">Colorado Public Radio</a>
   </div>
   <div class="navbar-actions">
     <div class="station-buttons">
       <button class="station-button" [class.active]="currentStation().id === 'indie'" (click)="switchStation('indie')">Indie</button>
       <button class="station-button" [class.active]="currentStation().id === 'classical'" (click)="switchStation('classical')">Classical</button>
+      <button class="station-button" [class.active]="currentStation().id === 'news'" (click)="switchStation('news')">News</button>
     </div>
     <a class="donate-button" href="https://donate.cpr.org/give" target="_blank" rel="noopener noreferrer">Donate</a>
   </div>

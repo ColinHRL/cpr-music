@@ -16,6 +16,17 @@
       color: #f06f37;
       text-decoration: none;
     }
+
+    .app-subtitle {
+      color: white;
+      text-decoration: underline;
+
+      &:visited,
+      &:hover,
+      &:active {
+        color: white;
+      }
+    }
   }
 
   .donate-button {
@@ -56,6 +67,14 @@
     &:first-child {
       border-radius: 4px 0 0 4px;
       margin-right: 0;
+    }
+
+    &:nth-child(2) {
+      margin-right: 0;
+    }
+
+    &:not(:last-child):hover {
+      clip-path: inset(-10px 0 -10px -10px);
     }
 
     &:last-child {

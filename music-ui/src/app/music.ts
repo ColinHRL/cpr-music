@@ -10,7 +10,7 @@ interface ManagedTimer {
 }
 
 interface Station {
-  id: 'indie' | 'classical';
+  id: 'indie' | 'classical' | 'news';
   name: string;
   tabTitle: string;
   siteUrl: string;
@@ -18,7 +18,7 @@ interface Station {
   streamUrls: string[];
 }
 
-const STATIONS: Record<'indie' | 'classical', Station> = {
+const STATIONS: Record<'indie' | 'classical' | 'news', Station> = {
   indie: {
     id: 'indie',
     name: 'CPR Music',
@@ -41,6 +41,18 @@ const STATIONS: Record<'indie' | 'classical', Station> = {
       'https://stream.cprnetwork.org/cpr2_lo',
       'https://stream1.cprnetwork.org/cpr2_lo',
       'https://stream2.cprnetwork.org/cpr2_lo',
+    ],
+  },
+  news: {
+    id: 'news',
+    name: 'CPR News',
+    tabTitle: 'News - CPR',
+    siteUrl: 'https://www.cpr.org/',
+    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KCFR.json',
+    streamUrls: [
+      'https://stream.cprnetwork.org/cpr1_lo',
+      'https://stream1.cprnetwork.org/cpr1_lo',
+      'https://stream2.cprnetwork.org/cpr1_lo',
     ],
   },
 };
@@ -306,6 +318,11 @@ export class Music implements OnDestroy {
           return;
         }
         this.sortPlaylist(data);
+        data = data.map((track) => ({
+          ...track,
+          title: track.title || track.line_2,
+          artist: track.artist || track.line_1,
+        }));
         // first run
         if (this.playlist.value.length === 0) {
           if (!data[0].title && !data[0].artist) {
@@ -520,7 +537,7 @@ export class Music implements OnDestroy {
   }
 
   /** Clears all state and restarts the service pointed at a different station. */
-  switchStation(id: 'indie' | 'classical'): void {
+  switchStation(id: 'indie' | 'classical' | 'news'): void {
     if (this.currentStation.value.id === id) {
       return;
     }

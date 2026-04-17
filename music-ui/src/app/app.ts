@@ -24,7 +24,7 @@ export class App {
     });
   }
 
-  switchStation(id: 'indie' | 'classical'): void {
+  switchStation(id: 'indie' | 'classical' | 'news'): void {
     this.musicService.switchStation(id);
   }
 }
