@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
+import { AudioStreamController } from './audio-stream-controller';
 import {
   clearManagedTimer,
   createManagedTimer,
@@ -30,16 +31,19 @@ export class Music implements OnDestroy {
   private retryDelayMs = 5000;
   private maxRetries = 5;
   private retryCount = 0;
-  private audioElement: HTMLAudioElement | null = null;
-  private audioEventAbortController: AbortController | null = null;
   private lagCompensatedTrackIds = new Set<number>();
-  private audioRetryCount = 0;
-  private maxAudioRetries = 5;
-  private audioRetryDelay = 1000;
-  private currentStreamIndex = 0;
   private currentlyPlayingRemainingMs: number | null = null;
   private lagTimer: ManagedTimer = createManagedTimer();
   private streamRetryTimer: ManagedTimer = createManagedTimer();
+  private audioStreamController = new AudioStreamController({
+    isPlaying: this.isPlaying,
+    audioError: this.audioError,
+    streamRetryTimer: this.streamRetryTimer,
+    getCurrentStation: () => this.currentStation.value,
+    getCurrentTrack: () => this.currentlyPlaying.value,
+    getPlaylist: () => this.playlist.value,
+    setPlaylist: (playlist) => this.playlist.next(playlist),
+  });
 
   /** Registers visibility handling so timers can be reconciled when the tab resumes. */
   constructor() {
@@ -50,180 +54,43 @@ export class Music implements OnDestroy {
 
   /** Binds the shared audio element to the service and starts the initial playlist fetch. */
   setAudioElement(element: HTMLAudioElement): void {
-    this.audioElement = element;
-    this.setupAudioEventHandlers();
+    this.audioStreamController.setAudioElement(element);
     this.getPlaylist();
   }
 
   /** Toggles playback and preserves the current-track timer so resume stays in sync. */
   togglePlayPause(): void {
-    if (this.audioElement) {
-      if (this.audioElement.paused) {
-        // Playing - restore the timer with captured remaining time
-        this.audioElement.play();
-        this.isPlaying.next(true);
-
-        if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
-          this.scheduleCurrentTrackAdvance(this.currentlyPlayingRemainingMs);
-          console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
-        }
-      } else {
-        // Pausing - capture remaining time before clearing timer
-        this.audioElement.pause();
-        this.isPlaying.next(false);
-
-        if (this.currentlyPlayingEndTimer.deadlineMs !== null) {
-          this.currentlyPlayingRemainingMs = Math.max(
-            0,
-            this.currentlyPlayingEndTimer.deadlineMs - Date.now(),
-          );
-          clearManagedTimer(this.currentlyPlayingEndTimer);
-          console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
-        }
-      }
-    }
-  }
-
-  /** Wires audio lifecycle events into playback state, retry logic, and user-facing errors. */
-  private setupAudioEventHandlers(): void {
-    if (!this.audioElement) {
+    if (!this.audioStreamController.hasAudioElement()) {
       return;
     }
 
-    this.audioEventAbortController?.abort();
-    this.audioEventAbortController = new AbortController();
-    const { signal } = this.audioEventAbortController;
-    const audio = this.audioElement;
-
-    // Play/Pause state
-    audio.addEventListener(
-      'play',
-      () => {
-        this.isPlaying.next(true);
-      },
-      { signal },
-    );
-
-    audio.addEventListener(
-      'pause',
-      () => {
-        this.isPlaying.next(false);
-      },
-      { signal },
-    );
-
-    // Error handling
-    audio.addEventListener(
-      'error',
-      (e) => {
-        console.error('Audio error:', e);
-        this.handleAudioError(audio);
-      },
-      { signal },
-    );
-
-    // Network stalling
-    audio.addEventListener(
-      'stalled',
-      () => {
-        console.warn('Audio stream stalled');
-        this.audioError.next('Stream stalled, attempting to reconnect...');
-        this.retryStream(audio);
-      },
-      { signal },
-    );
-
-    // Successfully loading
-    audio.addEventListener(
-      'loadeddata',
-      () => {
-        console.log('Audio loaded successfully');
-        this.audioError.next(null);
-        this.audioRetryCount = 0;
-      },
-      { signal },
-    );
-
-    // Can play through
-    audio.addEventListener(
-      'canplaythrough',
-      () => {
-        this.audioError.next(null);
-      },
-      { signal },
-    );
-  }
-
-  /** Converts native audio errors into a readable message and triggers stream recovery. */
-  private handleAudioError(audio: HTMLAudioElement): void {
-    const error = audio.error;
-    let errorMessage = 'Stream error occurred';
-
-    if (error) {
-      switch (error.code) {
-        case MediaError.MEDIA_ERR_ABORTED:
-          errorMessage = 'Stream aborted';
-          break;
-        case MediaError.MEDIA_ERR_NETWORK:
-          errorMessage = 'Network error';
-          break;
-        case MediaError.MEDIA_ERR_DECODE:
-          errorMessage = 'Stream decode error';
-          break;
-        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          errorMessage = 'Stream format not supported';
-          break;
-      }
-    }
-
-    console.error(`Audio error: ${errorMessage}`);
-    this.audioError.next(errorMessage);
-    this.retryStream(audio);
-  }
-
-  /** Retries the stream with exponential backoff and rotates through the fallback URLs. */
-  private retryStream(audio: HTMLAudioElement): void {
-    if (this.audioRetryCount >= this.maxAudioRetries) {
-      console.error('Max audio retries reached');
-      this.audioError.next('Unable to connect to stream. Please try again later.');
-      return;
-    }
-
-    this.audioRetryCount++;
-    const delay = this.audioRetryDelay * Math.pow(2, this.audioRetryCount - 1); // Exponential backoff
-
-    console.log(
-      `Retrying stream (attempt ${this.audioRetryCount}/${this.maxAudioRetries}) in ${delay}ms`,
-    );
-    this.audioError.next(
-      `Reconnecting... (attempt ${this.audioRetryCount}/${this.maxAudioRetries})`,
-    );
-
-    scheduleManagedTimer(this.streamRetryTimer, delay, () => {
-      // Try next fallback URL
-      this.currentStreamIndex =
-        (this.currentStreamIndex + 1) % this.currentStation.value.streamUrls.length;
-      const newUrl = this.currentStation.value.streamUrls[this.currentStreamIndex];
-
-      console.log(`Switching to stream: ${newUrl}`);
-      audio.src = newUrl;
-      audio.load();
-      // retrying stream means we cannot play anything in the playlist except the current track, so set all tracks to canPlay false except the current one
-      const currentTrack = this.currentlyPlaying.value;
-      if (currentTrack) {
-        const updatedPlaylist = this.playlist.value.map((track) => ({
-          ...track,
-          canPlay: track.schedule_id === currentTrack.schedule_id,
-        }));
-        this.playlist.next(updatedPlaylist);
-      }
-
-      if (this.isPlaying.value) {
-        audio.play().catch((err) => {
+    if (this.audioStreamController.isPaused()) {
+      // Playing - restore the timer with captured remaining time
+      this.audioStreamController
+        .play()
+        ?.then(() => {
+          if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
+            this.scheduleCurrentTrackAdvance(this.currentlyPlayingRemainingMs);
+            console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
+          }
+        })
+        .catch((err) => {
           console.error('Failed to resume playback:', err);
         });
-      }
-    });
+      return;
+    }
+
+    // Pausing - capture remaining time before clearing timer
+    this.audioStreamController.pause();
+
+    if (this.currentlyPlayingEndTimer.deadlineMs !== null) {
+      this.currentlyPlayingRemainingMs = Math.max(
+        0,
+        this.currentlyPlayingEndTimer.deadlineMs - Date.now(),
+      );
+      clearManagedTimer(this.currentlyPlayingEndTimer);
+      console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
+    }
   }
 
   /** Schedules the next playlist poll and publishes the remaining wait for the UI. */
@@ -239,9 +106,13 @@ export class Music implements OnDestroy {
   /** Jumps playback to a known track position and re-arms the auto-advance timer. */
   seekToTrack(scheduleId: number): void {
     const track = this.playlist.value.find((t) => t.schedule_id === scheduleId);
-    if (track && this.audioElement && track.audioStartPosition !== undefined) {
-      this.audioElement.currentTime = track.audioStartPosition;
-      this.audioElement.play().catch((err) => {
+    if (
+      track &&
+      this.audioStreamController.hasAudioElement() &&
+      track.audioStartPosition !== undefined
+    ) {
+      this.audioStreamController.setCurrentTime(track.audioStartPosition);
+      this.audioStreamController.play()?.catch((err) => {
         console.error('Failed to play track:', err);
       });
       this.currentlyPlaying.next(track);
@@ -255,6 +126,7 @@ export class Music implements OnDestroy {
   /** Advances to the next playable track in history or retries shortly if it is not ready yet. */
   private playNextTrack(): void {
     const playlist = this.playlist.value;
+    const audioCurrentTime = this.audioStreamController.getCurrentTime();
     // find playingTrackID in playlist and play the next one
     const currentIndex = playlist.findIndex(
       (t) => t.schedule_id === this.currentlyPlaying.value?.schedule_id,
@@ -263,9 +135,9 @@ export class Music implements OnDestroy {
       const nextTrack = playlist[currentIndex - 1];
       if (
         nextTrack.audioStartPosition !== undefined &&
-        this.audioElement &&
+        audioCurrentTime !== null &&
         nextTrack.canPlay &&
-        this.audioElement.currentTime >= nextTrack.audioStartPosition
+        audioCurrentTime >= nextTrack.audioStartPosition
       ) {
         this.currentlyPlaying.next(nextTrack);
         const timeoutMs = this.getTrackEndTimeFromNowMs(nextTrack);
@@ -275,7 +147,7 @@ export class Music implements OnDestroy {
       } else {
         const timeUntilNextTrackStartSec =
           nextTrack.audioStartPosition !== undefined
-            ? Math.max(0, nextTrack.audioStartPosition - (this.audioElement?.currentTime || 0))
+            ? Math.max(0, nextTrack.audioStartPosition - (audioCurrentTime || 0))
             : this.retryDelayMs / 1000;
         this.currentlyPlayingRemainingMs = null;
         this.scheduleCurrentTrackAdvance(timeUntilNextTrackStartSec * 1000);
@@ -489,8 +361,6 @@ export class Music implements OnDestroy {
 
     // Reset counters and state
     this.retryCount = 0;
-    this.audioRetryCount = 0;
-    this.currentStreamIndex = 0;
     this.currentlyPlayingRemainingMs = null;
     this.lastPollingTimestamp = null;
     this.lagCompensatedTrackIds.clear();
@@ -503,12 +373,8 @@ export class Music implements OnDestroy {
 
     this.currentStation.next(STATIONS[id]);
 
-    if (this.audioElement) {
-      this.audioElement.src = STATIONS[id].streamUrls[0];
-      this.audioElement.load();
-      this.audioElement.play().catch((err) => {
-        console.error('Failed to start new station stream:', err);
-      });
+    if (this.audioStreamController.hasAudioElement()) {
+      this.audioStreamController.startStationStream(STATIONS[id]);
     }
 
     this.getPlaylist();
@@ -518,7 +384,7 @@ export class Music implements OnDestroy {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
-    this.audioEventAbortController?.abort();
+    this.audioStreamController.destroy();
   }
 
   /** Reconciles all managed timers after the document becomes visible again. */
