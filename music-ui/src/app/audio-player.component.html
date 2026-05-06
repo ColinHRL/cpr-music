@@ -8,14 +8,32 @@
 }
 
 <div class="player-controls">
-  <button (click)="togglePlayPause()" class="play-pause-btn" [attr.aria-label]="isPlaying() ? 'Pause' : 'Play'">
+  <button
+    (click)="togglePlayPause()"
+    class="play-pause-btn"
+    [attr.aria-label]="isPlaying() ? 'Pause' : 'Play'"
+  >
     @if (isPlaying()) {
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        width="1em"
+        height="1em"
+        aria-hidden="true"
+      >
         <rect x="6" y="4" width="4" height="16" rx="1" />
         <rect x="14" y="4" width="4" height="16" rx="1" />
       </svg>
     } @else {
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" aria-hidden="true">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        width="1em"
+        height="1em"
+        aria-hidden="true"
+      >
         <polygon points="5,3 19,12 5,21" />
       </svg>
     }

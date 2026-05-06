@@ -1,7 +1,7 @@
-import { HttpClient } from "@angular/common/http";
-import { inject, Injectable, OnDestroy } from "@angular/core";
-import { BehaviorSubject } from "rxjs";
-import { Track } from "./track";
+import { HttpClient } from '@angular/common/http';
+import { inject, Injectable, OnDestroy } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
+import { Track } from './track';
 
 interface ManagedTimer {
   handle: number | null;
@@ -58,7 +58,7 @@ const STATIONS: Record<'indie' | 'classical' | 'news', Station> = {
 };
 
 @Injectable({
-  providedIn: "root",
+  providedIn: 'root',
 })
 export class Music implements OnDestroy {
   private http = inject(HttpClient);
@@ -89,8 +89,8 @@ export class Music implements OnDestroy {
 
   /** Registers visibility handling so timers can be reconciled when the tab resumes. */
   constructor() {
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
     }
   }
 
@@ -142,58 +142,82 @@ export class Music implements OnDestroy {
     const audio = this.audioElement;
 
     // Play/Pause state
-    audio.addEventListener("play", () => {
-      this.isPlaying.next(true);
-    }, { signal });
+    audio.addEventListener(
+      'play',
+      () => {
+        this.isPlaying.next(true);
+      },
+      { signal },
+    );
 
-    audio.addEventListener("pause", () => {
-      this.isPlaying.next(false);
-    }, { signal });
+    audio.addEventListener(
+      'pause',
+      () => {
+        this.isPlaying.next(false);
+      },
+      { signal },
+    );
 
     // Error handling
-    audio.addEventListener("error", (e) => {
-      console.error("Audio error:", e);
-      this.handleAudioError(audio);
-    }, { signal });
+    audio.addEventListener(
+      'error',
+      (e) => {
+        console.error('Audio error:', e);
+        this.handleAudioError(audio);
+      },
+      { signal },
+    );
 
     // Network stalling
-    audio.addEventListener("stalled", () => {
-      console.warn("Audio stream stalled");
-      this.audioError.next("Stream stalled, attempting to reconnect...");
-      this.retryStream(audio);
-    }, { signal });
+    audio.addEventListener(
+      'stalled',
+      () => {
+        console.warn('Audio stream stalled');
+        this.audioError.next('Stream stalled, attempting to reconnect...');
+        this.retryStream(audio);
+      },
+      { signal },
+    );
 
     // Successfully loading
-    audio.addEventListener("loadeddata", () => {
-      console.log("Audio loaded successfully");
-      this.audioError.next(null);
-      this.audioRetryCount = 0;
-    }, { signal });
+    audio.addEventListener(
+      'loadeddata',
+      () => {
+        console.log('Audio loaded successfully');
+        this.audioError.next(null);
+        this.audioRetryCount = 0;
+      },
+      { signal },
+    );
 
     // Can play through
-    audio.addEventListener("canplaythrough", () => {
-      this.audioError.next(null);
-    }, { signal });
+    audio.addEventListener(
+      'canplaythrough',
+      () => {
+        this.audioError.next(null);
+      },
+      { signal },
+    );
   }
 
   /** Converts native audio errors into a readable message and triggers stream recovery. */
   private handleAudioError(audio: HTMLAudioElement): void {
     const error = audio.error;
-    let errorMessage = "Stream error occurred";
+    let errorMessage = 'Stream error occurred';
 
     if (error) {
       switch (error.code) {
         case MediaError.MEDIA_ERR_ABORTED:
-          errorMessage = "Stream aborted";
+          errorMessage = 'Stream aborted';
           break;
         case MediaError.MEDIA_ERR_NETWORK:
-          errorMessage = "Network error";
+          errorMessage = 'Network error';
           break;
         case MediaError.MEDIA_ERR_DECODE:
-          errorMessage = "Stream decode error";
+          errorMessage = 'Stream decode error';
           break;
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          errorMessage = "Stream format not supported";
+          errorMessage = 'Stream format not supported';
           break;
       }
     }
@@ -206,8 +230,8 @@ export class Music implements OnDestroy {
   /** Retries the stream with exponential backoff and rotates through the fallback URLs. */
   private retryStream(audio: HTMLAudioElement): void {
     if (this.audioRetryCount >= this.maxAudioRetries) {
-      console.error("Max audio retries reached");
-      this.audioError.next("Unable to connect to stream. Please try again later.");
+      console.error('Max audio retries reached');
+      this.audioError.next('Unable to connect to stream. Please try again later.');
       return;
     }
 
@@ -223,7 +247,8 @@ export class Music implements OnDestroy {
 
     this.scheduleManagedTimer(this.streamRetryTimer, delay, () => {
       // Try next fallback URL
-      this.currentStreamIndex = (this.currentStreamIndex + 1) % this.currentStation.value.streamUrls.length;
+      this.currentStreamIndex =
+        (this.currentStreamIndex + 1) % this.currentStation.value.streamUrls.length;
       const newUrl = this.currentStation.value.streamUrls[this.currentStreamIndex];
 
       console.log(`Switching to stream: ${newUrl}`);
@@ -241,7 +266,7 @@ export class Music implements OnDestroy {
 
       if (this.isPlaying.value) {
         audio.play().catch((err) => {
-          console.error("Failed to resume playback:", err);
+          console.error('Failed to resume playback:', err);
         });
       }
     });
@@ -252,7 +277,7 @@ export class Music implements OnDestroy {
     const safeDelayMs = Math.max(0, delayMs);
     this.timeUntilNextPollMs.next(safeDelayMs);
     this.scheduleManagedTimer(this.getPlaylistTimer, safeDelayMs, () => {
-      console.log("=== Polling API for next track ===");
+      console.log('=== Polling API for next track ===');
       this.getPlaylist();
     });
   }
@@ -263,7 +288,7 @@ export class Music implements OnDestroy {
     if (track && this.audioElement && track.audioStartPosition !== undefined) {
       this.audioElement.currentTime = track.audioStartPosition;
       this.audioElement.play().catch((err) => {
-        console.error("Failed to play track:", err);
+        console.error('Failed to play track:', err);
       });
       this.currentlyPlaying.next(track);
       const timeoutMs = this.getTrackEndTimeFromNowMs(track);
@@ -360,12 +385,12 @@ export class Music implements OnDestroy {
         }
       },
       error: (error) => {
-        console.error("Error fetching playlist:", error);
+        console.error('Error fetching playlist:', error);
         if (this.retryCount < this.maxRetries) {
           this.retryCount++;
           this.scheduleNextPoll(this.retryDelayMs);
         } else {
-          this.audioError.next("Unable to fetch playlist. Please refresh the page.");
+          this.audioError.next('Unable to fetch playlist. Please refresh the page.');
         }
       },
     });
@@ -388,7 +413,11 @@ export class Music implements OnDestroy {
       // check difference in track start time and client time. set timeout for difference
       const apiStartTime = this.parseMountainTime(track.date, track.time).getTime();
       const timeDiffMs = Date.now() - apiStartTime;
-      if (timeDiffMs > 0 && !this.lagTimer.callback && !this.lagCompensatedTrackIds.has(track.schedule_id)) {
+      if (
+        timeDiffMs > 0 &&
+        !this.lagTimer.callback &&
+        !this.lagCompensatedTrackIds.has(track.schedule_id)
+      ) {
         this.lagCompensatedTrackIds.add(track.schedule_id);
         this.scheduleManagedTimer(this.lagTimer, timeDiffMs, () => {
           this.setupNewTrackAndScheduleNextPoll(track);
@@ -412,11 +441,12 @@ export class Music implements OnDestroy {
           previousTrack.audioStartPosition !== undefined &&
           previousTrack.audioEndPosition !== undefined
         ) {
-          const actualRuntimeSec = previousTrack.audioEndPosition - previousTrack.audioStartPosition;
+          const actualRuntimeSec =
+            previousTrack.audioEndPosition - previousTrack.audioStartPosition;
           const hours = Math.floor(actualRuntimeSec / 3600);
           const minutes = Math.floor((actualRuntimeSec % 3600) / 60);
           const seconds = Math.floor(actualRuntimeSec % 60);
-          previousTrack.runtime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+          previousTrack.runtime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
         track.audioStartPosition = previousTrack.audioEndPosition || 0;
       } else {
@@ -451,13 +481,13 @@ export class Music implements OnDestroy {
     // Parse as MST (UTC-7) first, then check if it should be MDT (UTC-6)
     const mstDate = new Date(`${dateStr}T${timeStr}-07:00`);
     const mtHour = parseInt(
-      new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Denver",
-        hour: "numeric",
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Denver',
+        hour: 'numeric',
         hour12: false,
       }).format(mstDate),
     );
-    if (mtHour % 24 === parseInt(timeStr.split(":")[0])) {
+    if (mtHour % 24 === parseInt(timeStr.split(':')[0])) {
       return mstDate;
     }
     return new Date(`${dateStr}T${timeStr}-06:00`);
@@ -474,7 +504,7 @@ export class Music implements OnDestroy {
     if (!track.runtime) {
       return null;
     }
-    const [hours, minutes, seconds] = track.runtime.split(":").map(Number);
+    const [hours, minutes, seconds] = track.runtime.split(':').map(Number);
     const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
     if (isNaN(runtimeMs)) {
       console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
@@ -576,15 +606,15 @@ export class Music implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
     this.audioEventAbortController?.abort();
   }
 
   /** Reconciles all managed timers after the document becomes visible again. */
   private handleVisibilityChange = (): void => {
-    if (document.visibilityState !== "visible") {
+    if (document.visibilityState !== 'visible') {
       return;
     }
 
