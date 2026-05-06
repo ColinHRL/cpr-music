@@ -1,61 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
+import {
+  clearManagedTimer,
+  createManagedTimer,
+  ManagedTimer,
+  reconcileManagedTimer,
+  scheduleManagedTimer,
+} from './managed-timer';
+import { Station, StationId, STATIONS } from './stations';
 import { Track } from './track';
-
-interface ManagedTimer {
-  handle: number | null;
-  deadlineMs: number | null;
-  callback: (() => void) | null;
-}
-
-interface Station {
-  id: 'indie' | 'classical' | 'news';
-  name: string;
-  tabTitle: string;
-  siteUrl: string;
-  playlistUrl: string;
-  streamUrls: string[];
-}
-
-const STATIONS: Record<'indie' | 'classical' | 'news', Station> = {
-  indie: {
-    id: 'indie',
-    name: 'CPR Music',
-    tabTitle: 'Indie - CPR',
-    siteUrl: 'https://www.cpr.org/indie/',
-    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOQ.json',
-    streamUrls: [
-      'https://stream.cprnetwork.org/cpr3_lo',
-      'https://stream1.cprnetwork.org/cpr3_lo',
-      'https://stream2.cprnetwork.org/cpr3_lo',
-    ],
-  },
-  classical: {
-    id: 'classical',
-    name: 'CPR Classical',
-    tabTitle: 'Classical - CPR',
-    siteUrl: 'https://www.cpr.org/classical/',
-    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KVOD.json',
-    streamUrls: [
-      'https://stream.cprnetwork.org/cpr2_lo',
-      'https://stream1.cprnetwork.org/cpr2_lo',
-      'https://stream2.cprnetwork.org/cpr2_lo',
-    ],
-  },
-  news: {
-    id: 'news',
-    name: 'CPR News',
-    tabTitle: 'News - CPR',
-    siteUrl: 'https://www.cpr.org/',
-    playlistUrl: 'https://playlist.cprnetwork.org/won_plus3/KCFR.json',
-    streamUrls: [
-      'https://stream.cprnetwork.org/cpr1_lo',
-      'https://stream1.cprnetwork.org/cpr1_lo',
-      'https://stream2.cprnetwork.org/cpr1_lo',
-    ],
-  },
-};
 
 @Injectable({
   providedIn: 'root',
@@ -70,8 +24,8 @@ export class Music implements OnDestroy {
   );
   public isPlaying: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
   public audioError: BehaviorSubject<string | null> = new BehaviorSubject<string | null>(null);
-  private getPlaylistTimer: ManagedTimer = this.createManagedTimer();
-  private currentlyPlayingEndTimer: ManagedTimer = this.createManagedTimer();
+  private getPlaylistTimer: ManagedTimer = createManagedTimer();
+  private currentlyPlayingEndTimer: ManagedTimer = createManagedTimer();
   private lastPollingTimestamp: number | null = null;
   private retryDelayMs = 5000;
   private maxRetries = 5;
@@ -84,8 +38,8 @@ export class Music implements OnDestroy {
   private audioRetryDelay = 1000;
   private currentStreamIndex = 0;
   private currentlyPlayingRemainingMs: number | null = null;
-  private lagTimer: ManagedTimer = this.createManagedTimer();
-  private streamRetryTimer: ManagedTimer = this.createManagedTimer();
+  private lagTimer: ManagedTimer = createManagedTimer();
+  private streamRetryTimer: ManagedTimer = createManagedTimer();
 
   /** Registers visibility handling so timers can be reconciled when the tab resumes. */
   constructor() {
@@ -123,7 +77,7 @@ export class Music implements OnDestroy {
             0,
             this.currentlyPlayingEndTimer.deadlineMs - Date.now(),
           );
-          this.clearManagedTimer(this.currentlyPlayingEndTimer);
+          clearManagedTimer(this.currentlyPlayingEndTimer);
           console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
         }
       }
@@ -245,7 +199,7 @@ export class Music implements OnDestroy {
       `Reconnecting... (attempt ${this.audioRetryCount}/${this.maxAudioRetries})`,
     );
 
-    this.scheduleManagedTimer(this.streamRetryTimer, delay, () => {
+    scheduleManagedTimer(this.streamRetryTimer, delay, () => {
       // Try next fallback URL
       this.currentStreamIndex =
         (this.currentStreamIndex + 1) % this.currentStation.value.streamUrls.length;
@@ -276,7 +230,7 @@ export class Music implements OnDestroy {
   private scheduleNextPoll(delayMs: number): void {
     const safeDelayMs = Math.max(0, delayMs);
     this.timeUntilNextPollMs.next(safeDelayMs);
-    this.scheduleManagedTimer(this.getPlaylistTimer, safeDelayMs, () => {
+    scheduleManagedTimer(this.getPlaylistTimer, safeDelayMs, () => {
       console.log('=== Polling API for next track ===');
       this.getPlaylist();
     });
@@ -334,7 +288,7 @@ export class Music implements OnDestroy {
 
   /** Fetches the latest playlist snapshot and updates playback state around track changes. */
   getPlaylist(): void {
-    this.clearManagedTimer(this.getPlaylistTimer);
+    clearManagedTimer(this.getPlaylistTimer);
     this.http.get<Track[]>(this.currentStation.value.playlistUrl).subscribe({
       next: (data) => {
         this.retryCount = 0; // reset retry count on success
@@ -419,7 +373,7 @@ export class Music implements OnDestroy {
         !this.lagCompensatedTrackIds.has(track.schedule_id)
       ) {
         this.lagCompensatedTrackIds.add(track.schedule_id);
-        this.scheduleManagedTimer(this.lagTimer, timeDiffMs, () => {
+        scheduleManagedTimer(this.lagTimer, timeDiffMs, () => {
           this.setupNewTrackAndScheduleNextPoll(track);
           // Re-emit so the template picks up audioStartPosition now that it's been set
           this.playlist.next(this.playlist.value.slice());
@@ -513,70 +467,25 @@ export class Music implements OnDestroy {
     return runtimeMs;
   }
 
-  /** Creates timer state that can be paused, resumed, and reconciled after tab suspension. */
-  private createManagedTimer(): ManagedTimer {
-    return {
-      handle: null,
-      deadlineMs: null,
-      callback: null,
-    };
-  }
-
-  /** Replaces any existing timeout on a managed timer with a new scheduled callback. */
-  private scheduleManagedTimer(timer: ManagedTimer, delayMs: number, callback: () => void): void {
-    const safeDelayMs = Math.max(0, delayMs);
-
-    this.clearManagedTimer(timer);
-    timer.deadlineMs = Date.now() + safeDelayMs;
-    timer.callback = callback;
-    timer.handle = window.setTimeout(() => {
-      this.runManagedTimer(timer);
-    }, safeDelayMs);
-  }
-
-  /** Clears a managed timer and removes any pending callback metadata. */
-  private clearManagedTimer(timer: ManagedTimer): void {
-    if (timer.handle !== null) {
-      clearTimeout(timer.handle);
-    }
-
-    timer.handle = null;
-    timer.deadlineMs = null;
-    timer.callback = null;
-  }
-
-  /** Executes a managed timer callback after first resetting its bookkeeping state. */
-  private runManagedTimer(timer: ManagedTimer): void {
-    const callback = this.takeManagedTimerCallback(timer);
-    callback?.();
-  }
-
-  /** Clears a managed timer while returning its callback so callers can safely invoke it later. */
-  private takeManagedTimerCallback(timer: ManagedTimer): (() => void) | null {
-    const callback = timer.callback;
-    this.clearManagedTimer(timer);
-    return callback;
-  }
-
   /** Schedules when the service should attempt to advance playback to the next track. */
   private scheduleCurrentTrackAdvance(delayMs: number): void {
-    this.scheduleManagedTimer(this.currentlyPlayingEndTimer, delayMs, () => {
+    scheduleManagedTimer(this.currentlyPlayingEndTimer, delayMs, () => {
       this.currentlyPlayingRemainingMs = null;
       this.playNextTrack();
     });
   }
 
   /** Clears all state and restarts the service pointed at a different station. */
-  switchStation(id: 'indie' | 'classical' | 'news'): void {
+  switchStation(id: StationId): void {
     if (this.currentStation.value.id === id) {
       return;
     }
 
     // Cancel all pending timers
-    this.clearManagedTimer(this.getPlaylistTimer);
-    this.clearManagedTimer(this.currentlyPlayingEndTimer);
-    this.clearManagedTimer(this.lagTimer);
-    this.clearManagedTimer(this.streamRetryTimer);
+    clearManagedTimer(this.getPlaylistTimer);
+    clearManagedTimer(this.currentlyPlayingEndTimer);
+    clearManagedTimer(this.lagTimer);
+    clearManagedTimer(this.streamRetryTimer);
 
     // Reset counters and state
     this.retryCount = 0;
@@ -624,25 +533,7 @@ export class Music implements OnDestroy {
       this.currentlyPlayingEndTimer,
       this.getPlaylistTimer,
     ]) {
-      this.reconcileManagedTimer(timer);
+      reconcileManagedTimer(timer);
     }
   };
-
-  /** Restarts a timer using its stored deadline or fires it immediately if that deadline passed. */
-  private reconcileManagedTimer(timer: ManagedTimer): void {
-    if (!timer.callback || timer.deadlineMs === null) {
-      return;
-    }
-
-    const callback = timer.callback;
-    const remainingMs = timer.deadlineMs - Date.now();
-    this.clearManagedTimer(timer);
-
-    if (remainingMs <= 0) {
-      callback();
-      return;
-    }
-
-    this.scheduleManagedTimer(timer, remainingMs, callback);
-  }
 }

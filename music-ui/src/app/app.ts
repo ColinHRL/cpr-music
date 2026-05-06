@@ -5,6 +5,7 @@ import { Title } from '@angular/platform-browser';
 import { Music } from './music';
 import { AudioPlayerComponent } from './audio-player.component';
 import { AppTrackListComponent } from './app-track-list.component';
+import { StationId } from './stations';
 
 @Component({
   selector: 'app-root',
@@ -24,7 +25,7 @@ export class App {
     });
   }
 
-  switchStation(id: 'indie' | 'classical' | 'news'): void {
+  switchStation(id: StationId): void {
     this.musicService.switchStation(id);
   }
 }
