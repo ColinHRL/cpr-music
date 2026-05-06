@@ -33,6 +33,7 @@ export class Music implements OnDestroy {
   private retryCount = 0;
   private lagCompensatedTrackIds = new Set<number>();
   private currentlyPlayingRemainingMs: number | null = null;
+  private playbackRequestId = 0;
   private lagTimer: ManagedTimer = createManagedTimer();
   private streamRetryTimer: ManagedTimer = createManagedTimer();
   private audioStreamController = new AudioStreamController({
@@ -55,6 +56,7 @@ export class Music implements OnDestroy {
   /** Binds the shared audio element to the service and starts the initial playlist fetch. */
   setAudioElement(element: HTMLAudioElement): void {
     this.audioStreamController.setAudioElement(element);
+    this.audioStreamController.startStationStream(this.currentStation.value);
     this.getPlaylist();
   }
 
@@ -66,9 +68,17 @@ export class Music implements OnDestroy {
 
     if (this.audioStreamController.isPaused()) {
       // Playing - restore the timer with captured remaining time
+      const playbackRequestId = ++this.playbackRequestId;
       this.audioStreamController
         .play()
         ?.then(() => {
+          if (
+            this.playbackRequestId !== playbackRequestId ||
+            this.audioStreamController.isPaused()
+          ) {
+            return;
+          }
+
           if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
             this.scheduleCurrentTrackAdvance(this.currentlyPlayingRemainingMs);
             console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
@@ -81,6 +91,7 @@ export class Music implements OnDestroy {
     }
 
     // Pausing - capture remaining time before clearing timer
+    this.playbackRequestId++;
     this.audioStreamController.pause();
 
     if (this.currentlyPlayingEndTimer.deadlineMs !== null) {
@@ -111,15 +122,28 @@ export class Music implements OnDestroy {
       this.audioStreamController.hasAudioElement() &&
       track.audioStartPosition !== undefined
     ) {
-      this.audioStreamController.setCurrentTime(track.audioStartPosition);
-      this.audioStreamController.play()?.catch((err) => {
-        console.error('Failed to play track:', err);
-      });
-      this.currentlyPlaying.next(track);
-      const timeoutMs = this.getTrackEndTimeFromNowMs(track);
-      this.currentlyPlayingRemainingMs = null;
-      this.scheduleCurrentTrackAdvance(timeoutMs);
-      console.log(`Seeking to ${track.audioStartPosition.toFixed(2)}s in track: ${track.title}`);
+      const audioStartPosition = track.audioStartPosition;
+      const playbackRequestId = ++this.playbackRequestId;
+      this.audioStreamController.setCurrentTime(audioStartPosition);
+      this.audioStreamController
+        .play()
+        ?.then(() => {
+          if (
+            this.playbackRequestId !== playbackRequestId ||
+            this.audioStreamController.isPaused()
+          ) {
+            return;
+          }
+
+          this.currentlyPlaying.next(track);
+          const timeoutMs = this.getTrackEndTimeFromNowMs(track);
+          this.currentlyPlayingRemainingMs = null;
+          this.scheduleCurrentTrackAdvance(timeoutMs);
+          console.log(`Seeking to ${audioStartPosition.toFixed(2)}s in track: ${track.title}`);
+        })
+        .catch((err) => {
+          console.error('Failed to play track:', err);
+        });
     }
   }
 
@@ -353,6 +377,8 @@ export class Music implements OnDestroy {
       return;
     }
 
+    this.playbackRequestId++;
+
     // Cancel all pending timers
     clearManagedTimer(this.getPlaylistTimer);
     clearManagedTimer(this.currentlyPlayingEndTimer);
@@ -384,6 +410,7 @@ export class Music implements OnDestroy {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
+    this.playbackRequestId++;
     this.audioStreamController.destroy();
   }
 
