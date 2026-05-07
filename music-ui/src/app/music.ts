@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Subscription } from 'rxjs';
 import { AudioStreamController } from './audio-stream-controller';
 import {
   clearManagedTimer,
@@ -34,6 +34,8 @@ export class Music implements OnDestroy {
   private lagCompensatedTrackIds = new Set<number>();
   private currentlyPlayingRemainingMs: number | null = null;
   private playbackRequestId = 0;
+  private playlistRequestVersion = 0;
+  private playlistRequestSubscription: Subscription | null = null;
   private lagTimer: ManagedTimer = createManagedTimer();
   private streamRetryTimer: ManagedTimer = createManagedTimer();
   private audioStreamController = new AudioStreamController({
@@ -57,6 +59,10 @@ export class Music implements OnDestroy {
   setAudioElement(element: HTMLAudioElement): void {
     this.audioStreamController.setAudioElement(element);
     this.audioStreamController.startStationStream(this.currentStation.value);
+    if (this.playlistRequestSubscription || this.currentlyPlaying.value || this.playlist.value.length > 0) {
+      return;
+    }
+
     this.getPlaylist();
   }
 
@@ -81,7 +87,6 @@ export class Music implements OnDestroy {
 
           if (this.currentlyPlayingRemainingMs !== null && this.currentlyPlayingRemainingMs > 0) {
             this.scheduleCurrentTrackAdvance(this.currentlyPlayingRemainingMs);
-            console.log(`Resumed playback, timer set for ${this.currentlyPlayingRemainingMs}ms`);
           }
         })
         .catch((err) => {
@@ -100,7 +105,6 @@ export class Music implements OnDestroy {
         this.currentlyPlayingEndTimer.deadlineMs - Date.now(),
       );
       clearManagedTimer(this.currentlyPlayingEndTimer);
-      console.log(`Paused playback, ${this.currentlyPlayingRemainingMs}ms remaining on timer`);
     }
   }
 
@@ -109,7 +113,6 @@ export class Music implements OnDestroy {
     const safeDelayMs = Math.max(0, delayMs);
     this.timeUntilNextPollMs.next(safeDelayMs);
     scheduleManagedTimer(this.getPlaylistTimer, safeDelayMs, () => {
-      console.log('=== Polling API for next track ===');
       this.getPlaylist();
     });
   }
@@ -139,7 +142,6 @@ export class Music implements OnDestroy {
           const timeoutMs = this.getTrackEndTimeFromNowMs(track);
           this.currentlyPlayingRemainingMs = null;
           this.scheduleCurrentTrackAdvance(timeoutMs);
-          console.log(`Seeking to ${audioStartPosition.toFixed(2)}s in track: ${track.title}`);
         })
         .catch((err) => {
           console.error('Failed to play track:', err);
@@ -167,7 +169,6 @@ export class Music implements OnDestroy {
         const timeoutMs = this.getTrackEndTimeFromNowMs(nextTrack);
         this.currentlyPlayingRemainingMs = null;
         this.scheduleCurrentTrackAdvance(timeoutMs);
-        console.log(`Automatically advancing to next track: ${nextTrack.title}`);
       } else {
         const timeUntilNextTrackStartSec =
           nextTrack.audioStartPosition !== undefined
@@ -175,9 +176,6 @@ export class Music implements OnDestroy {
             : this.retryDelayMs / 1000;
         this.currentlyPlayingRemainingMs = null;
         this.scheduleCurrentTrackAdvance(timeUntilNextTrackStartSec * 1000);
-        console.warn(
-          `Next track not ready to play, retrying in ${timeUntilNextTrackStartSec * 1000}ms`,
-        );
       }
     }
   }
@@ -185,65 +183,107 @@ export class Music implements OnDestroy {
   /** Fetches the latest playlist snapshot and updates playback state around track changes. */
   getPlaylist(): void {
     clearManagedTimer(this.getPlaylistTimer);
-    this.http.get<Track[]>(this.currentStation.value.playlistUrl).subscribe({
+    this.timeUntilNextPollMs.next(null);
+    this.cancelPlaylistRequest();
+    const requestVersion = this.playlistRequestVersion;
+    const stationId = this.currentStation.value.id;
+
+    this.playlistRequestSubscription = this.http.get<Track[]>(this.currentStation.value.playlistUrl).subscribe({
       next: (data) => {
-        this.retryCount = 0; // reset retry count on success
-        if (data.length === 0) {
-          this.scheduleNextPoll(this.retryDelayMs);
+        if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
           return;
         }
-        this.sortPlaylist(data);
-        data = data.map((track) => ({
-          ...track,
-          title: track.title || track.line_2,
-          artist: track.artist || track.line_1,
-        }));
-        // first run
-        if (this.playlist.value.length === 0) {
-          if (!data[0].title && !data[0].artist) {
-            this.scheduleNextPoll(this.retryDelayMs);
-            return;
-          }
-          // set the rest to canPLay false
-          for (let i = 1; i < data.length; i++) {
-            data[i].canPlay = false;
-          }
-          data = data.filter((track) => track.title && track.artist);
-          this.setupNewTrackAndScheduleNextPoll(data[0]);
-          this.playlist.next(data);
-          const now = Date.now();
-          const trackEndTimeMs = this.getTrackEndTimeMs(data[0]);
-          const baseTimeUntilNextTrack = trackEndTimeMs - now;
-          this.currentlyPlayingRemainingMs = null;
-          this.scheduleCurrentTrackAdvance(baseTimeUntilNextTrack);
-          return;
-        }
-        // subsequent runs - check if there's a new track
-        if (!data[0].title && !data[0].artist) {
-          this.scheduleNextPoll(this.retryDelayMs);
-          return;
-        }
-        const isNewTrack = this.playlist.value[0].schedule_id !== data[0].schedule_id;
-        const playlist = this.playlist.value.slice(); // create a copy of the current playlist
-        if (isNewTrack) {
-          const lagTimeMs = this.setupNewTrackAndScheduleNextPoll(data[0]);
-          playlist.unshift(data[0]);
-          this.playlist.next(playlist);
-          this.scheduleCurrentTrackAdvance(lagTimeMs);
-        } else {
-          this.scheduleNextPoll(this.retryDelayMs);
-        }
+
+        this.playlistRequestSubscription = null;
+        this.handlePlaylistSuccess(data);
       },
       error: (error) => {
-        console.error('Error fetching playlist:', error);
-        if (this.retryCount < this.maxRetries) {
-          this.retryCount++;
-          this.scheduleNextPoll(this.retryDelayMs);
-        } else {
-          this.audioError.next('Unable to fetch playlist. Please refresh the page.');
+        if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
+          return;
         }
+
+        this.playlistRequestSubscription = null;
+        this.handlePlaylistError(error);
       },
     });
+  }
+
+  private handlePlaylistSuccess(data: Track[]): void {
+    this.retryCount = 0;
+    if (data.length === 0) {
+      console.warn('[Music] Playlist response was empty; retrying shortly');
+      this.scheduleNextPoll(this.retryDelayMs);
+      return;
+    }
+
+    const normalizedTracks = this.normalizePlaylist(data);
+    const latestTrack = normalizedTracks[0];
+    if (!latestTrack?.title && !latestTrack?.artist) {
+      console.warn('[Music] Latest playlist entry has no playable metadata; retrying shortly');
+      this.scheduleNextPoll(this.retryDelayMs);
+      return;
+    }
+
+    if (this.playlist.value.length === 0) {
+      for (let i = 1; i < normalizedTracks.length; i++) {
+        normalizedTracks[i].canPlay = false;
+      }
+
+      const playableTracks = normalizedTracks.filter((track) => track.title && track.artist);
+      if (playableTracks.length === 0) {
+        console.warn('[Music] No playable tracks found after normalization; retrying shortly');
+        this.scheduleNextPoll(this.retryDelayMs);
+        return;
+      }
+
+      console.log(`[Music] Now playing "${playableTracks[0].title}" by ${playableTracks[0].artist}`);
+      this.setupNewTrackAndScheduleNextPoll(playableTracks[0]);
+      this.playlist.next(playableTracks);
+      const now = Date.now();
+      const trackEndTimeMs = this.getTrackEndTimeMs(playableTracks[0]);
+      const baseTimeUntilNextTrack = trackEndTimeMs - now;
+      this.currentlyPlayingRemainingMs = null;
+      this.scheduleCurrentTrackAdvance(baseTimeUntilNextTrack);
+      return;
+    }
+
+    const isNewTrack = this.playlist.value[0].schedule_id !== latestTrack.schedule_id;
+    const playlist = this.playlist.value.slice();
+    if (isNewTrack) {
+      console.log(`[Music] Now playing "${latestTrack.title}" by ${latestTrack.artist}`);
+      const lagTimeMs = this.setupNewTrackAndScheduleNextPoll(latestTrack);
+      playlist.unshift(latestTrack);
+      this.playlist.next(playlist);
+      this.scheduleCurrentTrackAdvance(lagTimeMs);
+      return;
+    }
+
+    this.scheduleNextPoll(this.retryDelayMs);
+  }
+
+  private handlePlaylistError(error: unknown): void {
+    console.error('Error fetching playlist:', error);
+    if (this.retryCount < this.maxRetries) {
+      this.retryCount++;
+      console.warn(
+        `[Music] Playlist fetch failed; retry ${this.retryCount}/${this.maxRetries} in ${this.retryDelayMs}ms`,
+      );
+      this.scheduleNextPoll(this.retryDelayMs);
+      return;
+    }
+
+    console.error('[Music] Playlist fetch retries exhausted; surfacing user-facing error');
+    this.audioError.next('Unable to fetch playlist. Please refresh the page.');
+  }
+
+  private normalizePlaylist(playlist: Track[]): Track[] {
+    const normalizedPlaylist = playlist.map((track) => ({
+      ...track,
+      title: track.title || track.line_2,
+      artist: track.artist || track.line_1,
+    }));
+    this.sortPlaylist(normalizedPlaylist);
+    return normalizedPlaylist;
   }
 
   /** Sorts API results so the newest track is always first in the playlist array. */
@@ -377,25 +417,9 @@ export class Music implements OnDestroy {
       return;
     }
 
+    console.log(`[Music] Switching station from ${this.currentStation.value.id} to ${id}`);
     this.playbackRequestId++;
-
-    // Cancel all pending timers
-    clearManagedTimer(this.getPlaylistTimer);
-    clearManagedTimer(this.currentlyPlayingEndTimer);
-    clearManagedTimer(this.lagTimer);
-    clearManagedTimer(this.streamRetryTimer);
-
-    // Reset counters and state
-    this.retryCount = 0;
-    this.currentlyPlayingRemainingMs = null;
-    this.lastPollingTimestamp = null;
-    this.lagCompensatedTrackIds.clear();
-
-    // Clear public state
-    this.playlist.next([]);
-    this.currentlyPlaying.next(null);
-    this.audioError.next(null);
-    this.timeUntilNextPollMs.next(null);
+    this.resetServiceState();
 
     this.currentStation.next(STATIONS[id]);
 
@@ -410,8 +434,40 @@ export class Music implements OnDestroy {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
+
+    this.resetServiceState();
     this.playbackRequestId++;
     this.audioStreamController.destroy();
+  }
+
+  private resetServiceState(): void {
+    this.cancelPlaylistRequest();
+    this.clearTimers();
+    this.retryCount = 0;
+    this.currentlyPlayingRemainingMs = null;
+    this.lastPollingTimestamp = null;
+    this.lagCompensatedTrackIds.clear();
+    this.playlist.next([]);
+    this.currentlyPlaying.next(null);
+    this.audioError.next(null);
+    this.timeUntilNextPollMs.next(null);
+  }
+
+  private clearTimers(): void {
+    clearManagedTimer(this.getPlaylistTimer);
+    clearManagedTimer(this.currentlyPlayingEndTimer);
+    clearManagedTimer(this.lagTimer);
+    clearManagedTimer(this.streamRetryTimer);
+  }
+
+  private cancelPlaylistRequest(): void {
+    this.playlistRequestVersion++;
+    this.playlistRequestSubscription?.unsubscribe();
+    this.playlistRequestSubscription = null;
+  }
+
+  private isActivePlaylistRequest(requestVersion: number, stationId: StationId): boolean {
+    return this.playlistRequestVersion === requestVersion && this.currentStation.value.id === stationId;
   }
 
   /** Reconciles all managed timers after the document becomes visible again. */
