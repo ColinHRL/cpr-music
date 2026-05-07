@@ -1,5 +1,5 @@
 import { BehaviorSubject } from 'rxjs';
-import { ManagedTimer, scheduleManagedTimer } from './managed-timer';
+import { clearManagedTimer, ManagedTimer, scheduleManagedTimer } from './managed-timer';
 import { Station } from './stations';
 import { Track } from './track';
 
@@ -14,17 +14,24 @@ interface AudioStreamControllerOptions {
 }
 
 export class AudioStreamController {
+  private static readonly mediaErrorAborted = 1;
+  private static readonly mediaErrorNetwork = 2;
+  private static readonly mediaErrorDecode = 3;
+  private static readonly mediaErrorSrcNotSupported = 4;
+
   private audioElement: HTMLAudioElement | null = null;
   private audioEventAbortController: AbortController | null = null;
   private audioRetryCount = 0;
   private readonly maxAudioRetries = 5;
   private readonly audioRetryDelay = 1000;
   private currentStreamIndex = 0;
+  private retryPending = false;
 
   constructor(private readonly options: AudioStreamControllerOptions) {}
 
   /** Binds an audio element and wires its stream lifecycle handlers. */
   setAudioElement(element: HTMLAudioElement): void {
+    this.clearPendingRetry();
     this.audioElement = element;
     this.setupAudioEventHandlers();
   }
@@ -59,14 +66,24 @@ export class AudioStreamController {
 
   /** Loads the first stream URL for a station and starts playback. */
   startStationStream(station: Station): void {
-    this.audioRetryCount = 0;
+    this.clearPendingRetry();
     this.currentStreamIndex = 0;
 
     if (!this.audioElement) {
       return;
     }
 
-    this.audioElement.src = station.streamUrls[0];
+    const initialStreamUrl = station.streamUrls[0];
+    if (!initialStreamUrl) {
+      this.options.audioError.next('No stream URL is configured for this station.');
+      this.options.isPlaying.next(false);
+      this.audioElement.removeAttribute('src');
+      this.audioElement.load();
+      return;
+    }
+
+    this.options.audioError.next(null);
+    this.audioElement.src = initialStreamUrl;
     this.audioElement.load();
     this.audioElement.play().catch((err) => {
       console.error('Failed to start new station stream:', err);
@@ -74,6 +91,7 @@ export class AudioStreamController {
   }
 
   destroy(): void {
+    this.clearPendingRetry();
     this.audioEventAbortController?.abort();
   }
 
@@ -117,7 +135,6 @@ export class AudioStreamController {
       'stalled',
       () => {
         console.warn('Audio stream stalled');
-        this.options.audioError.next('Stream stalled, attempting to reconnect...');
         this.retryStream(audio);
       },
       { signal },
@@ -127,8 +144,7 @@ export class AudioStreamController {
       'loadeddata',
       () => {
         console.log('Audio loaded successfully');
-        this.options.audioError.next(null);
-        this.audioRetryCount = 0;
+        this.handleStreamRecovered();
       },
       { signal },
     );
@@ -136,7 +152,7 @@ export class AudioStreamController {
     audio.addEventListener(
       'canplaythrough',
       () => {
-        this.options.audioError.next(null);
+        this.handleStreamRecovered();
       },
       { signal },
     );
@@ -149,16 +165,16 @@ export class AudioStreamController {
 
     if (error) {
       switch (error.code) {
-        case MediaError.MEDIA_ERR_ABORTED:
-          errorMessage = 'Stream aborted';
-          break;
-        case MediaError.MEDIA_ERR_NETWORK:
+        case AudioStreamController.mediaErrorAborted:
+          console.warn('Ignoring aborted audio request during stream transition');
+          return;
+        case AudioStreamController.mediaErrorNetwork:
           errorMessage = 'Network error';
           break;
-        case MediaError.MEDIA_ERR_DECODE:
+        case AudioStreamController.mediaErrorDecode:
           errorMessage = 'Stream decode error';
           break;
-        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        case AudioStreamController.mediaErrorSrcNotSupported:
           errorMessage = 'Stream format not supported';
           break;
       }
@@ -171,12 +187,24 @@ export class AudioStreamController {
 
   /** Retries the stream with exponential backoff and rotates through the fallback URLs. */
   private retryStream(audio: HTMLAudioElement): void {
+    const station = this.options.getCurrentStation();
+    if (station.streamUrls.length === 0) {
+      this.options.audioError.next('No stream URL is configured for this station.');
+      this.options.isPlaying.next(false);
+      return;
+    }
+
+    if (this.retryPending) {
+      return;
+    }
+
     if (this.audioRetryCount >= this.maxAudioRetries) {
       console.error('Max audio retries reached');
       this.options.audioError.next('Unable to connect to stream. Please try again later.');
       return;
     }
 
+    this.retryPending = true;
     this.audioRetryCount++;
     const delay = this.audioRetryDelay * Math.pow(2, this.audioRetryCount - 1);
 
@@ -188,7 +216,7 @@ export class AudioStreamController {
     );
 
     scheduleManagedTimer(this.options.streamRetryTimer, delay, () => {
-      const station = this.options.getCurrentStation();
+      this.retryPending = false;
       this.currentStreamIndex = (this.currentStreamIndex + 1) % station.streamUrls.length;
       const newUrl = station.streamUrls[this.currentStreamIndex];
 
@@ -211,5 +239,16 @@ export class AudioStreamController {
         });
       }
     });
+  }
+
+  private handleStreamRecovered(): void {
+    this.clearPendingRetry();
+    this.options.audioError.next(null);
+  }
+
+  private clearPendingRetry(): void {
+    clearManagedTimer(this.options.streamRetryTimer);
+    this.audioRetryCount = 0;
+    this.retryPending = false;
   }
 }

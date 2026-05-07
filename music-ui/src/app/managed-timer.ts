@@ -1,7 +1,8 @@
 export interface ManagedTimer {
-  handle: number | null;
+  handle: ReturnType<typeof globalThis.setTimeout> | null;
   deadlineMs: number | null;
   callback: (() => void) | null;
+  version: number;
 }
 
 /** Creates timer state that can be paused, resumed, and reconciled after tab suspension. */
@@ -10,6 +11,7 @@ export function createManagedTimer(): ManagedTimer {
     handle: null,
     deadlineMs: null,
     callback: null,
+    version: 0,
   };
 }
 
@@ -19,12 +21,18 @@ export function scheduleManagedTimer(
   delayMs: number,
   callback: () => void,
 ): void {
-  const safeDelayMs = Math.max(0, delayMs);
+  const safeDelayMs = Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
+  const version = timer.version + 1;
 
   clearManagedTimer(timer);
+  timer.version = version;
   timer.deadlineMs = Date.now() + safeDelayMs;
   timer.callback = callback;
-  timer.handle = window.setTimeout(() => {
+  timer.handle = globalThis.setTimeout(() => {
+    if (timer.version !== version) {
+      return;
+    }
+
     runManagedTimer(timer);
   }, safeDelayMs);
 }
@@ -38,6 +46,7 @@ export function clearManagedTimer(timer: ManagedTimer): void {
   timer.handle = null;
   timer.deadlineMs = null;
   timer.callback = null;
+  timer.version++;
 }
 
 /** Executes a managed timer callback after first resetting its bookkeeping state. */
