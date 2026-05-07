@@ -20,12 +20,10 @@ describe('managed timer', () => {
     const staleCallback = vi.fn();
     const freshCallback = vi.fn();
 
-    vi.spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((callback: TimerHandler) => {
-        scheduledCallbacks.push(callback as () => void);
-        return scheduledCallbacks.length;
-      }) as typeof originalSetTimeout,
-    );
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((callback: TimerHandler) => {
+      scheduledCallbacks.push(callback as () => void);
+      return scheduledCallbacks.length;
+    }) as typeof originalSetTimeout);
     vi.spyOn(globalThis, 'clearTimeout').mockImplementation(
       ((_: ReturnType<typeof globalThis.setTimeout>) => undefined) as typeof originalClearTimeout,
     );

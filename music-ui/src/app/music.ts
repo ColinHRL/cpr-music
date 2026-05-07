@@ -59,7 +59,11 @@ export class Music implements OnDestroy {
   setAudioElement(element: HTMLAudioElement): void {
     this.audioStreamController.setAudioElement(element);
     this.audioStreamController.startStationStream(this.currentStation.value);
-    if (this.playlistRequestSubscription || this.currentlyPlaying.value || this.playlist.value.length > 0) {
+    if (
+      this.playlistRequestSubscription ||
+      this.currentlyPlaying.value ||
+      this.playlist.value.length > 0
+    ) {
       return;
     }
 
@@ -188,24 +192,26 @@ export class Music implements OnDestroy {
     const requestVersion = this.playlistRequestVersion;
     const stationId = this.currentStation.value.id;
 
-    this.playlistRequestSubscription = this.http.get<Track[]>(this.currentStation.value.playlistUrl).subscribe({
-      next: (data) => {
-        if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
-          return;
-        }
+    this.playlistRequestSubscription = this.http
+      .get<Track[]>(this.currentStation.value.playlistUrl)
+      .subscribe({
+        next: (data) => {
+          if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
+            return;
+          }
 
-        this.playlistRequestSubscription = null;
-        this.handlePlaylistSuccess(data);
-      },
-      error: (error) => {
-        if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
-          return;
-        }
+          this.playlistRequestSubscription = null;
+          this.handlePlaylistSuccess(data);
+        },
+        error: (error) => {
+          if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
+            return;
+          }
 
-        this.playlistRequestSubscription = null;
-        this.handlePlaylistError(error);
-      },
-    });
+          this.playlistRequestSubscription = null;
+          this.handlePlaylistError(error);
+        },
+      });
   }
 
   private handlePlaylistSuccess(data: Track[]): void {
@@ -236,7 +242,9 @@ export class Music implements OnDestroy {
         return;
       }
 
-      console.log(`[Music] Now playing "${playableTracks[0].title}" by ${playableTracks[0].artist}`);
+      console.log(
+        `[Music] Now playing "${playableTracks[0].title}" by ${playableTracks[0].artist}`,
+      );
       this.setupNewTrackAndScheduleNextPoll(playableTracks[0]);
       this.playlist.next(playableTracks);
       const now = Date.now();
@@ -467,7 +475,9 @@ export class Music implements OnDestroy {
   }
 
   private isActivePlaylistRequest(requestVersion: number, stationId: StationId): boolean {
-    return this.playlistRequestVersion === requestVersion && this.currentStation.value.id === stationId;
+    return (
+      this.playlistRequestVersion === requestVersion && this.currentStation.value.id === stationId
+    );
   }
 
   /** Reconciles all managed timers after the document becomes visible again. */
