@@ -1,6 +1,54 @@
-# MusicUi
+# music-ui
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.1.1.
+CPR Music UI — Angular 21 application that shows the currently playing track and a small history of recent tracks from Colorado Public Radio (CPR).
+
+Development (Quick start)
+
+1. cd music-ui
+2. npm install
+3. npm start
+
+The dev server runs at http://localhost:4200 and supports live reload.
+
+Available scripts
+
+- npm start         — start dev server (ng serve)
+- npm run build     — production build (dist/)
+- npm run watch     — rebuild on changes (development)
+- npm test          — run unit tests (Vitest)
+
+Generating code
+
+Use Angular CLI:
+
+- ng generate component <name>
+- ng generate service <name>
+
+Architecture overview
+
+- Music Service (music.ts)
+  - Fetches playlist JSON from CPR (e.g., https://playlist.cprnetwork.org/won_plus3/KVOQ.json)
+  - Maintains reactive state (playlist, currentlyPlaying, streamLagMs)
+  - Smart polling: schedules the next fetch to align with track end times and compensates for measured stream lag
+  - Retry logic with exponential backoff for transient failures
+
+- App component
+  - Subscribes to Music Service using Angular signals and displays current track + history
+  - Exposes stream lag for debugging
+
+Stream lag detection
+
+- The app measures audio stream lag by comparing the DOM audio element's currentTime to expected elapsed time after playback begins. Measured lag is displayed in the UI and used to adjust polling.
+
+Testing & tooling
+
+- Unit tests run via npm test (Vitest)
+- Prettier config is included in package.json
+
+More
+
+For development workflow, build commands, and CI details see the repository root README.md.
+
 
 ## Development server
 
