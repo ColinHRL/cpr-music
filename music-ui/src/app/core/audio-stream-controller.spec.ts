@@ -1,9 +1,9 @@
 import { BehaviorSubject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AudioStreamController } from './audio-stream-controller';
-import { createManagedTimer } from './managed-timer';
-import { Station } from './stations';
-import { Track } from './track';
+import { createManagedTimer } from '../services/managed-timer';
+import { Station } from '../shared/models/stations';
+import { Track } from '../shared/models/track';
 
 class MockAudioElement extends EventTarget {
   src = '';

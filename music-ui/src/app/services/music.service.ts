@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
-import { AudioStreamController } from './audio-stream-controller';
+import { AudioStreamController } from '../core/audio-stream-controller';
 import {
   clearManagedTimer,
   createManagedTimer,
@@ -9,8 +9,8 @@ import {
   reconcileManagedTimer,
   scheduleManagedTimer,
 } from './managed-timer';
-import { Station, StationId, STATIONS } from './stations';
-import { Track } from './track';
+import { Station, StationId, STATIONS } from '../shared/models/stations';
+import { Track } from '../shared/models/track';
 
 @Injectable({
   providedIn: 'root',
