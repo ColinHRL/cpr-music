@@ -2,10 +2,9 @@ import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterOutlet } from '@angular/router';
 import { Title } from '@angular/platform-browser';
-import { MusicService } from './services/music.service';
-import { AudioPlayerComponent } from './features/now-playing/audio-player.component';
-import { AppTrackListComponent } from './features/history/app-track-list.component';
-import { StationId } from './shared/models/stations';
+import { MusicService } from './services';
+import { AudioPlayerComponent, AppTrackListComponent } from './features';
+import { StationId } from './shared/models';
 
 @Component({
   selector: 'app-root',

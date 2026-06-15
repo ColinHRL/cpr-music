@@ -2,9 +2,9 @@ import { HttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Subject } from 'rxjs';
-import { MusicService } from './music.service';
-import { STATIONS } from '../shared/models/stations';
-import { Track } from '../shared/models/track';
+import { MusicService } from './';
+import { STATIONS } from '../shared/models';
+import { Track } from '../shared/models';
 
 class MockAudioElement extends EventTarget {
   src = '';

@@ -1,2 +1,2 @@
-// Features barrel: re-export feature modules/components
-// Populate with feature exports as files are moved
+export * from './now-playing/audio-player.component';
+export * from './history/app-track-list.component';

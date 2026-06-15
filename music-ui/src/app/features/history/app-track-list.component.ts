@@ -1,8 +1,8 @@
 import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
-import { MusicService } from '../../services/music.service';
-import { Track } from '../../shared/models/track';
+import { MusicService } from '../../services';
+import { Track } from '../../shared/models';
 
 @Component({
   selector: 'app-track-list',
