@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
-import { AudioStreamController } from '../core/audio-stream-controller';
+import { PlaybackService } from './playback.service';
 import {
   clearManagedTimer,
   createManagedTimer,
@@ -40,15 +40,17 @@ export class MusicService implements OnDestroy {
   private playlistRequestSubscription: Subscription | null = null;
   private lagTimer: ManagedTimer = createManagedTimer();
   private streamRetryTimer: ManagedTimer = createManagedTimer();
-  private audioStreamController = new AudioStreamController({
-    isPlaying: this.isPlaying,
-    audioError: this.audioError,
-    streamRetryTimer: this.streamRetryTimer,
-    getCurrentStation: () => this.currentStation.value,
-    getCurrentTrack: () => this.currentlyPlaying.value,
-    getPlaylist: () => this.playlist.value,
-    setPlaylist: (playlist) => this.playlist.next(playlist),
-  });
+  private playbackService = inject(PlaybackService);
+
+  // expose a small adapter used by PlaylistController to query audio playback state
+  public audioStreamController = {
+    getCurrentTime: () => this.playbackService.getCurrentTime(),
+    hasAudioElement: () => this.playbackService.hasAudioElement(),
+    setCurrentTime: (t: number) => this.playbackService.setCurrentTime(t),
+    play: () => this.playbackService.play(),
+    pause: () => this.playbackService.pause(),
+    isPaused: () => this.playbackService.isPaused(),
+  };
 
   // playlistController is responsible for fetching, normalization and scheduling
   private playlistController!: import('./playlist-controller').PlaylistController;
@@ -59,14 +61,25 @@ export class MusicService implements OnDestroy {
       document.addEventListener('visibilitychange', this.handleVisibilityChange);
     }
 
+    // initialize playback service with host callbacks used by the audio controller
+    this.playbackService.init({
+      isPlaying: this.isPlaying,
+      audioError: this.audioError,
+      streamRetryTimer: this.streamRetryTimer,
+      getCurrentStation: () => this.currentStation.value,
+      getCurrentTrack: () => this.currentlyPlaying.value,
+      getPlaylist: () => this.playlist.value,
+      setPlaylist: (playlist) => this.playlist.next(playlist),
+    });
+
     // instantiate playlist controller (delegates playlist fetching and scheduling)
     this.playlistController = new PlaylistController(this as unknown as import('./playlist-controller').MusicHost);
   }
 
   /** Binds the shared audio element to the service and starts the initial playlist fetch. */
   setAudioElement(element: HTMLAudioElement): void {
-    this.audioStreamController.setAudioElement(element);
-    this.audioStreamController.startStationStream(this.currentStation.value);
+    this.playbackService.setAudioElement(element);
+    this.playbackService.startStationStream(this.currentStation.value);
     if (
       this.playlistRequestSubscription ||
       this.currentlyPlaying.value ||
@@ -80,19 +93,19 @@ export class MusicService implements OnDestroy {
 
   /** Toggles playback and preserves the current-track timer so resume stays in sync. */
   togglePlayPause(): void {
-    if (!this.audioStreamController.hasAudioElement()) {
+    if (!this.playbackService.hasAudioElement()) {
       return;
     }
 
-    if (this.audioStreamController.isPaused()) {
+    if (this.playbackService.isPaused()) {
       // Playing - restore the timer with captured remaining time
       const playbackRequestId = ++this.playbackRequestId;
-      this.audioStreamController
+      this.playbackService
         .play()
         ?.then(() => {
           if (
             this.playbackRequestId !== playbackRequestId ||
-            this.audioStreamController.isPaused()
+            this.playbackService.isPaused()
           ) {
             return;
           }
@@ -109,7 +122,7 @@ export class MusicService implements OnDestroy {
 
     // Pausing - capture remaining time before clearing timer
     this.playbackRequestId++;
-    this.audioStreamController.pause();
+    this.playbackService.pause();
 
     if (this.currentlyPlayingEndTimer.deadlineMs !== null) {
       this.currentlyPlayingRemainingMs = Math.max(
@@ -134,18 +147,18 @@ export class MusicService implements OnDestroy {
     const track = this.playlist.value.find((t) => t.schedule_id === scheduleId);
     if (
       track &&
-      this.audioStreamController.hasAudioElement() &&
+      this.playbackService.hasAudioElement() &&
       track.audioStartPosition !== undefined
     ) {
       const audioStartPosition = track.audioStartPosition;
       const playbackRequestId = ++this.playbackRequestId;
-      this.audioStreamController.setCurrentTime(audioStartPosition);
-      this.audioStreamController
+      this.playbackService.setCurrentTime(audioStartPosition);
+      this.playbackService
         .play()
         ?.then(() => {
           if (
             this.playbackRequestId !== playbackRequestId ||
-            this.audioStreamController.isPaused()
+            this.playbackService.isPaused()
           ) {
             return;
           }
@@ -324,8 +337,8 @@ export class MusicService implements OnDestroy {
 
     this.currentStation.next(STATIONS[id]);
 
-    if (this.audioStreamController.hasAudioElement()) {
-      this.audioStreamController.startStationStream(STATIONS[id]);
+    if (this.playbackService.hasAudioElement()) {
+      this.playbackService.startStationStream(STATIONS[id]);
     }
 
     this.getPlaylist();
@@ -338,7 +351,7 @@ export class MusicService implements OnDestroy {
 
     this.resetServiceState();
     this.playbackRequestId++;
-    this.audioStreamController.destroy();
+    this.playbackService.destroy();
   }
 
   private resetServiceState(): void {
