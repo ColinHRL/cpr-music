@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Subject } from 'rxjs';
-import { Music } from './music.service';
+import { MusicService } from './music.service';
 import { STATIONS } from '../shared/models/stations';
 import { Track } from '../shared/models/track';
 
@@ -83,14 +83,14 @@ function createTrack(scheduleId: number, overrides: Partial<Track> = {}): Track 
 
 describe('music service', () => {
   let httpClient: HttpClientMock;
-  let service: Music;
+  let service: MusicService;
 
   beforeEach(() => {
     httpClient = new HttpClientMock();
     TestBed.configureTestingModule({
-      providers: [Music, { provide: HttpClient, useValue: httpClient }],
+      providers: [MusicService, { provide: HttpClient, useValue: httpClient }],
     });
-    service = TestBed.inject(Music);
+    service = TestBed.inject(MusicService);
   });
 
   afterEach(() => {

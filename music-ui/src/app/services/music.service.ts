@@ -15,7 +15,7 @@ import { Track } from '../shared/models/track';
 @Injectable({
   providedIn: 'root',
 })
-export class Music implements OnDestroy {
+export class MusicService implements OnDestroy {
   private http = inject(HttpClient);
   public currentStation: BehaviorSubject<Station> = new BehaviorSubject<Station>(STATIONS.indie);
   public playlist: BehaviorSubject<Track[]> = new BehaviorSubject<Track[]>([]);
