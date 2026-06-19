@@ -2,10 +2,9 @@ import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterOutlet } from '@angular/router';
 import { Title } from '@angular/platform-browser';
-import { Music } from './music';
-import { AudioPlayerComponent } from './audio-player.component';
-import { AppTrackListComponent } from './app-track-list.component';
-import { StationId } from './stations';
+import { MusicService } from './services';
+import { AudioPlayerComponent, AppTrackListComponent } from './features';
+import { StationId } from './shared/models';
 
 @Component({
   selector: 'app-root',
@@ -14,7 +13,7 @@ import { StationId } from './stations';
   styleUrls: ['./app.css'],
 })
 export class App {
-  private musicService = inject(Music);
+  private musicService = inject(MusicService);
   private titleService = inject(Title);
   currentlyPlaying = toSignal(this.musicService.currentlyPlaying, { requireSync: true });
   currentStation = toSignal(this.musicService.currentStation, { requireSync: true });

@@ -1,7 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
-import { clearManagedTimer, ManagedTimer, scheduleManagedTimer } from './managed-timer';
-import { Station } from './stations';
-import { Track } from './track';
+import { clearManagedTimer, ManagedTimer, scheduleManagedTimer } from '../services/managed-timer';
+import { Station } from '../shared/models/stations';
+import { Track } from '../shared/models/track';
 
 interface AudioStreamControllerOptions {
   isPlaying: BehaviorSubject<boolean>;

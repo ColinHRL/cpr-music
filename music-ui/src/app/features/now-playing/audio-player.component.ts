@@ -1,8 +1,8 @@
 import { Component, ViewChild, AfterViewInit, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
-import { Music } from './music';
-import { Track } from './track';
+import { MusicService } from '../../services';
+import { Track } from '../../shared/models';
 
 @Component({
   selector: 'app-audio-player',
@@ -13,7 +13,7 @@ import { Track } from './track';
 export class AudioPlayerComponent implements AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer: any;
 
-  private musicService = inject(Music);
+  private musicService = inject(MusicService);
 
   isPlaying = toSignal(this.musicService.isPlaying, { requireSync: true });
   audioError = toSignal(this.musicService.audioError, { requireSync: true });

@@ -1,8 +1,8 @@
 import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
-import { Music } from './music';
-import { Track } from './track';
+import { MusicService } from '../../services';
+import { Track } from '../../shared/models';
 
 @Component({
   selector: 'app-track-list',
@@ -11,7 +11,7 @@ import { Track } from './track';
   styleUrls: ['./app-track-list.component.css'],
 })
 export class AppTrackListComponent {
-  private musicService = inject(Music);
+  private musicService = inject(MusicService);
 
   tracklist = toSignal(this.musicService.playlist, { requireSync: true });
   private playingTrackId = toSignal(

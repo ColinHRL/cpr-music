@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
-import { AudioStreamController } from './audio-stream-controller';
+import { AudioStreamController } from '../core/audio-stream-controller';
 import {
   clearManagedTimer,
   createManagedTimer,
@@ -9,13 +9,15 @@ import {
   reconcileManagedTimer,
   scheduleManagedTimer,
 } from './managed-timer';
-import { Station, StationId, STATIONS } from './stations';
-import { Track } from './track';
+import { Station, StationId, STATIONS } from '../shared/models/stations';
+import { Track } from '../shared/models/track';
+import { normalizePlaylist, getTrackEndTimeMs, getTrackEndTimeFromNowMs, parseMountainTime } from './playlist-utils';
+import { PlaylistController } from './playlist-controller';
 
 @Injectable({
   providedIn: 'root',
 })
-export class Music implements OnDestroy {
+export class MusicService implements OnDestroy {
   private http = inject(HttpClient);
   public currentStation: BehaviorSubject<Station> = new BehaviorSubject<Station>(STATIONS.indie);
   public playlist: BehaviorSubject<Track[]> = new BehaviorSubject<Track[]>([]);
@@ -48,11 +50,17 @@ export class Music implements OnDestroy {
     setPlaylist: (playlist) => this.playlist.next(playlist),
   });
 
+  // playlistController is responsible for fetching, normalization and scheduling
+  private playlistController!: import('./playlist-controller').PlaylistController;
+
   /** Registers visibility handling so timers can be reconciled when the tab resumes. */
   constructor() {
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', this.handleVisibilityChange);
     }
+
+    // instantiate playlist controller (delegates playlist fetching and scheduling)
+    this.playlistController = new PlaylistController(this as unknown as import('./playlist-controller').MusicHost);
   }
 
   /** Binds the shared audio element to the service and starts the initial playlist fetch. */
@@ -143,7 +151,7 @@ export class Music implements OnDestroy {
           }
 
           this.currentlyPlaying.next(track);
-          const timeoutMs = this.getTrackEndTimeFromNowMs(track);
+          const timeoutMs = getTrackEndTimeFromNowMs(track, this.retryDelayMs);
           this.currentlyPlayingRemainingMs = null;
           this.scheduleCurrentTrackAdvance(timeoutMs);
         })
@@ -155,63 +163,13 @@ export class Music implements OnDestroy {
 
   /** Advances to the next playable track in history or retries shortly if it is not ready yet. */
   private playNextTrack(): void {
-    const playlist = this.playlist.value;
-    const audioCurrentTime = this.audioStreamController.getCurrentTime();
-    // find playingTrackID in playlist and play the next one
-    const currentIndex = playlist.findIndex(
-      (t) => t.schedule_id === this.currentlyPlaying.value?.schedule_id,
-    );
-    if (currentIndex > 0) {
-      const nextTrack = playlist[currentIndex - 1];
-      if (
-        nextTrack.audioStartPosition !== undefined &&
-        audioCurrentTime !== null &&
-        nextTrack.canPlay &&
-        audioCurrentTime >= nextTrack.audioStartPosition
-      ) {
-        this.currentlyPlaying.next(nextTrack);
-        const timeoutMs = this.getTrackEndTimeFromNowMs(nextTrack);
-        this.currentlyPlayingRemainingMs = null;
-        this.scheduleCurrentTrackAdvance(timeoutMs);
-      } else {
-        const timeUntilNextTrackStartSec =
-          nextTrack.audioStartPosition !== undefined
-            ? Math.max(0, nextTrack.audioStartPosition - (audioCurrentTime || 0))
-            : this.retryDelayMs / 1000;
-        this.currentlyPlayingRemainingMs = null;
-        this.scheduleCurrentTrackAdvance(timeUntilNextTrackStartSec * 1000);
-      }
-    }
+    // delegate to playlist controller
+    this.playlistController.playNextTrack();
   }
 
   /** Fetches the latest playlist snapshot and updates playback state around track changes. */
   getPlaylist(): void {
-    clearManagedTimer(this.getPlaylistTimer);
-    this.timeUntilNextPollMs.next(null);
-    this.cancelPlaylistRequest();
-    const requestVersion = this.playlistRequestVersion;
-    const stationId = this.currentStation.value.id;
-
-    this.playlistRequestSubscription = this.http
-      .get<Track[]>(this.currentStation.value.playlistUrl)
-      .subscribe({
-        next: (data) => {
-          if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
-            return;
-          }
-
-          this.playlistRequestSubscription = null;
-          this.handlePlaylistSuccess(data);
-        },
-        error: (error) => {
-          if (!this.isActivePlaylistRequest(requestVersion, stationId)) {
-            return;
-          }
-
-          this.playlistRequestSubscription = null;
-          this.handlePlaylistError(error);
-        },
-      });
+    this.playlistController.getPlaylist();
   }
 
   private handlePlaylistSuccess(data: Track[]): void {
@@ -222,7 +180,7 @@ export class Music implements OnDestroy {
       return;
     }
 
-    const normalizedTracks = this.normalizePlaylist(data);
+    const normalizedTracks = normalizePlaylist(data);
     const latestTrack = normalizedTracks[0];
     if (!latestTrack?.title && !latestTrack?.artist) {
       console.warn('[Music] Latest playlist entry has no playable metadata; retrying shortly');
@@ -248,7 +206,7 @@ export class Music implements OnDestroy {
       this.setupNewTrackAndScheduleNextPoll(playableTracks[0]);
       this.playlist.next(playableTracks);
       const now = Date.now();
-      const trackEndTimeMs = this.getTrackEndTimeMs(playableTracks[0]);
+      const trackEndTimeMs = getTrackEndTimeMs(playableTracks[0], this.retryDelayMs);
       const baseTimeUntilNextTrack = trackEndTimeMs - now;
       this.currentlyPlayingRemainingMs = null;
       this.scheduleCurrentTrackAdvance(baseTimeUntilNextTrack);
@@ -284,32 +242,13 @@ export class Music implements OnDestroy {
     this.audioError.next('Unable to fetch playlist. Please refresh the page.');
   }
 
-  private normalizePlaylist(playlist: Track[]): Track[] {
-    const normalizedPlaylist = playlist.map((track) => ({
-      ...track,
-      title: track.title || track.line_2,
-      artist: track.artist || track.line_1,
-    }));
-    this.sortPlaylist(normalizedPlaylist);
-    return normalizedPlaylist;
-  }
-
-  /** Sorts API results so the newest track is always first in the playlist array. */
-  private sortPlaylist(playlist: Track[]): void {
-    playlist.sort((a, b) => {
-      const dateA = this.parseMountainTime(a.date, a.time).getTime();
-      const dateB = this.parseMountainTime(b.date, b.time).getTime();
-      return dateB - dateA;
-    });
-  }
-
   /** Initializes a new current track, updates prior track metadata, and schedules the next poll. */
   private setupNewTrackAndScheduleNextPoll(track: Track): number {
     track.clientStartTime = Date.now();
     track.canPlay = true;
     if (this.lastPollingTimestamp && this.playlist.value[0]) {
       // check difference in track start time and client time. set timeout for difference
-      const apiStartTime = this.parseMountainTime(track.date, track.time).getTime();
+      const apiStartTime = parseMountainTime(track.date, track.time).getTime();
       const timeDiffMs = Date.now() - apiStartTime;
       if (
         timeDiffMs > 0 &&
@@ -356,60 +295,14 @@ export class Music implements OnDestroy {
     }
 
     const now = Date.now();
-    const trackEndTimeMs = this.getTrackEndTimeMs(track);
+    const trackEndTimeMs = getTrackEndTimeMs(track, this.retryDelayMs);
     const baseTimeUntilNextTrack = trackEndTimeMs - now;
 
-    this.lastPollingTimestamp = Date.now();
-    this.scheduleNextPoll(baseTimeUntilNextTrack);
+        this.lastPollingTimestamp = Date.now();
+        this.scheduleNextPoll(baseTimeUntilNextTrack);
     return 0;
   }
 
-  /** Calculates the absolute end time for a track using its start timestamp and runtime. */
-  private getTrackEndTimeMs(track: Track): number {
-    const trackStartTimeMs = this.parseMountainTime(track.date, track.time).getTime();
-    const runtimeMs = this.getTrackRuntimeMs(track);
-    if (runtimeMs === null) {
-      return trackStartTimeMs + this.retryDelayMs;
-    }
-    return trackStartTimeMs + runtimeMs;
-  }
-
-  /** Parses CPR playlist timestamps in America/Denver while accounting for DST offsets. */
-  private parseMountainTime(dateStr: string, timeStr: string): Date {
-    // Parse as MST (UTC-7) first, then check if it should be MDT (UTC-6)
-    const mstDate = new Date(`${dateStr}T${timeStr}-07:00`);
-    const mtHour = parseInt(
-      new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/Denver',
-        hour: 'numeric',
-        hour12: false,
-      }).format(mstDate),
-    );
-    if (mtHour % 24 === parseInt(timeStr.split(':')[0])) {
-      return mstDate;
-    }
-    return new Date(`${dateStr}T${timeStr}-06:00`);
-  }
-
-  /** Converts a track runtime into a delay from now for local playback scheduling. */
-  private getTrackEndTimeFromNowMs(track: Track): number {
-    const runtimeMs = this.getTrackRuntimeMs(track);
-    return runtimeMs ?? this.retryDelayMs;
-  }
-
-  /** Parses a track runtime string once and centralizes invalid-runtime handling. */
-  private getTrackRuntimeMs(track: Track): number | null {
-    if (!track.runtime) {
-      return null;
-    }
-    const [hours, minutes, seconds] = track.runtime.split(':').map(Number);
-    const runtimeMs = hours * 3600000 + minutes * 60000 + seconds * 1000;
-    if (isNaN(runtimeMs)) {
-      console.warn(`Invalid runtime format for track: ${track.title}`, track.runtime);
-      return null;
-    }
-    return runtimeMs;
-  }
 
   /** Schedules when the service should attempt to advance playback to the next track. */
   private scheduleCurrentTrackAdvance(delayMs: number): void {
@@ -486,13 +379,7 @@ export class Music implements OnDestroy {
       return;
     }
 
-    for (const timer of [
-      this.streamRetryTimer,
-      this.lagTimer,
-      this.currentlyPlayingEndTimer,
-      this.getPlaylistTimer,
-    ]) {
-      reconcileManagedTimer(timer);
-    }
+    // Delegate timer reconciliation to playlist controller which centralizes scheduling behavior
+    this.playlistController?.reconcileTimersOnVisibility();
   };
 }
